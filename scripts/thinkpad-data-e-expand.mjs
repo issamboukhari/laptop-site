@@ -1,0 +1,66 @@
+// E-series expanded dataset — older models + extra configs.
+import { base, P, V } from "./thinkpad-data-common.mjs";
+
+export const E_SERIES_EXPAND = [
+  { id: "lenovo-thinkpad-e420", name: "ThinkPad E420", year: 2011, base: base({ wifi: "Wi-Fi 802.11b/g/n", bluetooth: "Bluetooth 3.0", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: false, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "Entry-level 14-inch business laptop with Sandy Bridge Intel.",
+    variants: [
+      V("thinkpad-e420-i5", "ThinkPad E420 (i5 · 4GB · 320GB)", 499, 3.8, 312, "Budget Sandy Bridge i5 with a spill-resistant keyboard.", { cpu: "Intel Core i5-2410M", cs: 48, gpu: "Intel HD Graphics 3000", gs: 8, ram: 4, ramT: "DDR3", ru: "Up to 8GB (2 slots)", storage: 320, disp: '14" HD (1366×768) TN 200 nits', ds: 14, ref: 60, batt: 5, w: 2.3, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 7 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e430", name: "ThinkPad E430", year: 2012, base: base({ wifi: "Wi-Fi 802.11b/g/n", bluetooth: "Bluetooth 4.0", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: false, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "Ivy Bridge 14-inch budget business laptop.",
+    variants: [
+      V("thinkpad-e430-i5", "ThinkPad E430 (i5 · 4GB · 320GB)", 549, 3.9, 267, "Ivy Bridge i5 with optional NVIDIA GT 610M graphics.", { cpu: "Intel Core i5-3210M", cs: 52, gpu: "Intel HD Graphics 4000", gs: 10, ram: 4, ramT: "DDR3", ru: "Up to 16GB (2 slots)", storage: 320, disp: '14" HD (1366×768) TN 200 nits', ds: 14, ref: 60, batt: 6, w: 2.19, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 7 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e440", name: "ThinkPad E440", year: 2013, base: base({ wifi: "Wi-Fi 802.11b/g/n", bluetooth: "Bluetooth 4.0", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: false, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "Haswell 14-inch budget laptop with optional dedicated GPU.",
+    variants: [
+      V("thinkpad-e440-i5", "ThinkPad E440 (i5 · 4GB · 500GB)", 549, 3.9, 234, "Haswell i5 with optional GT 740M for light gaming.", { cpu: "Intel Core i5-4200M", cs: 54, gpu: "Intel HD Graphics 4600", gs: 12, ram: 4, ramT: "DDR3L", ru: "Up to 16GB (2 slots)", storage: 500, disp: '14" HD (1366×768) TN 200 nits', ds: 14, ref: 60, batt: 6, w: 2.19, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 7 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e450", name: "ThinkPad E450", year: 2014, base: base({ wifi: "Wi-Fi 802.11b/g/n", bluetooth: "Bluetooth 4.0", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: false, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "Haswell refresh 14-inch with optional R7 M260 GPU.",
+    variants: [
+      V("thinkpad-e450-i5", "ThinkPad E450 (i5 · 4GB · 500GB)", 579, 3.9, 198, "Broadwell-era budget business laptop with solid build quality.", { cpu: "Intel Core i5-5200U", cs: 55, gpu: "Intel HD Graphics 5500", gs: 12, ram: 4, ramT: "DDR3L", ru: "Up to 16GB (2 slots)", storage: 500, disp: '14" HD (1366×768) TN 200 nits', ds: 14, ref: 60, batt: 7, w: 2.1, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 7 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e540", name: "ThinkPad E540", year: 2013, base: base({ wifi: "Wi-Fi 802.11b/g/n", bluetooth: "Bluetooth 4.0", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: true, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "15.6-inch budget business laptop with optional GT 740M.",
+    variants: [
+      V("thinkpad-e540-i5", "ThinkPad E540 (i5 · 4GB · 500GB)", 599, 3.8, 187, "Larger 15.6-inch screen with numeric keypad for data entry.", { cpu: "Intel Core i5-4200M", cs: 54, gpu: "Intel HD Graphics 4600", gs: 12, ram: 4, ramT: "DDR3L", ru: "Up to 16GB (2 slots)", storage: 500, disp: '15.6" HD (1366×768) TN 200 nits', ds: 15.6, ref: 60, batt: 6, w: 2.44, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 7 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e550", name: "ThinkPad E550", year: 2014, base: base({ wifi: "Wi-Fi 802.11b/g/n", bluetooth: "Bluetooth 4.0", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: true, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "15.6-inch Haswell budget laptop with dual-drive support.",
+    variants: [
+      V("thinkpad-e550-i5", "ThinkPad E550 (i5 · 4GB · 500GB)", 599, 3.9, 156, "Haswell i5 with optional Radeon R7 M265 discrete graphics.", { cpu: "Intel Core i5-5200U", cs: 55, gpu: "Intel HD Graphics 5500", gs: 12, ram: 4, ramT: "DDR3L", ru: "Up to 16GB (2 slots)", storage: 500, disp: '15.6" HD (1366×768) TN 200 nits', ds: 15.6, ref: 60, batt: 7, w: 2.44, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 7 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e560", name: "ThinkPad E560", year: 2015, base: base({ wifi: "Wi-Fi 5 (802.11ac)", bluetooth: "Bluetooth 4.1", fingerprint: false, faceRecognition: false, irCamera: false, privacyShutter: false, smartCardReader: false, backlitKeyboard: false, rgbKeyboard: false, keyboardLayout: "Full-size", numpad: true, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan", tpm: "TPM 1.2" }), desc: "15.6-inch Broadwell budget laptop with optional FHD IPS.",
+    variants: [
+      V("thinkpad-e560-i5", "ThinkPad E560 (i5 · 8GB · 256GB)", 599, 4.0, 178, "Broadwell i5 with dual-drive support and optional FHD display.", { cpu: "Intel Core i5-5200U", cs: 55, gpu: "Intel HD Graphics 5500", gs: 12, ram: 8, ramT: "DDR3L", ru: "Up to 16GB (2 slots)", storage: 256, disp: '15.6" FHD (1920×1080) IPS 250 nits', ds: 15.6, ref: 60, batt: 8, w: 2.44, ports: ["USB-A x3", "VGA", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen1", name: "ThinkPad E14 Gen 1", year: 2020, base: P.eModern, desc: "First-gen E14 with 10th-gen Intel Comet Lake.",
+    variants: [
+      V("thinkpad-e14-gen1-i5", "ThinkPad E14 Gen 1 (i5 · 8GB · 256GB)", 649, 4.2, 345, "Comet Lake i5 with dual-storage support and ThinkShutter.", { cpu: "Intel Core i5-10210U", cs: 67, gpu: "Intel UHD Graphics", gs: 18, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 256, ss: "2× M.2", disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.69, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+      V("thinkpad-e14-gen1-i7", "ThinkPad E14 Gen 1 (i7 · 16GB · 512GB)", 849, 4.3, 198, "i7-10510U with 16GB RAM for heavier business workloads.", { cpu: "Intel Core i7-10510U", cs: 72, gpu: "Intel UHD Graphics", gs: 18, ram: 16, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 512, ss: "2× M.2", disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.69, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e15-gen1", name: "ThinkPad E15 Gen 1", year: 2020, base: P.eModern, desc: "First-gen 15.6-inch E15 with Comet Lake.",
+    variants: [
+      V("thinkpad-e15-gen1-i5", "ThinkPad E15 Gen 1 (i5 · 8GB · 256GB)", 679, 4.1, 289, "Comet Lake i5 in the larger 15.6-inch E-series chassis.", { cpu: "Intel Core i5-10210U", cs: 67, gpu: "Intel UHD Graphics", gs: 18, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 256, ss: "2× M.2", disp: '15.6" FHD (1920×1080) IPS 250 nits', ds: 15.6, ref: 60, batt: 8, bc: "45Wh", w: 1.9, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen2-extra", name: "ThinkPad E14 Gen 2 (Ryzen 7)", year: 2020, base: P.eModern, desc: "AMD Ryzen 7 config of the E14 Gen 2 with Vega graphics.",
+    variants: [
+      V("thinkpad-e14-gen2-r7", "ThinkPad E14 Gen 2 (Ryzen 7 · 16GB · 512GB)", 799, 4.3, 198, "Ryzen 7 4700U with eight cores and strong Radeon Vega graphics.", { cpu: "AMD Ryzen 7 4700U", cs: 74, gpu: "AMD Radeon Graphics", gs: 28, ram: 16, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.59, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e15-gen2-extra", name: "ThinkPad E15 Gen 2 (Ryzen 5)", year: 2020, base: P.eModern, desc: "AMD Ryzen 5 config of the E15 Gen 2.",
+    variants: [
+      V("thinkpad-e15-gen2-r5", "ThinkPad E15 Gen 2 (Ryzen 5 · 8GB · 256GB)", 649, 4.2, 198, "Ryzen 5 4500U with six cores in the 15.6-inch chassis.", { cpu: "AMD Ryzen 5 4500U", cs: 69, gpu: "AMD Radeon Graphics", gs: 25, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 256, disp: '15.6" FHD (1920×1080) IPS 250 nits', ds: 15.6, ref: 60, batt: 8, bc: "45Wh", w: 1.9, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen3-extra", name: "ThinkPad E14 Gen 3 (Ryzen 5)", year: 2021, base: P.eModern, desc: "AMD Ryzen 5000 config of the E14 Gen 3.",
+    variants: [
+      V("thinkpad-e14-gen3-r5", "ThinkPad E14 Gen 3 (Ryzen 5 · 8GB · 256GB)", 699, 4.3, 312, "Ryzen 5 5500U with six Zen 3 cores and strong value.", { cpu: "AMD Ryzen 5 5500U", cs: 71, gpu: "AMD Radeon Graphics", gs: 25, ram: 8, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 256, disp: '14" FHD (1920×1080) IPS 300 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e15-gen3-extra", name: "ThinkPad E15 Gen 3 (Ryzen 7)", year: 2021, base: P.eModern, desc: "AMD Ryzen 7 config of the 15.6-inch E15 Gen 3.",
+    variants: [
+      V("thinkpad-e15-gen3-r7", "ThinkPad E15 Gen 3 (Ryzen 7 · 16GB · 512GB)", 849, 4.4, 156, "Ryzen 7 5700U with eight cores and Radeon Vega graphics.", { cpu: "AMD Ryzen 7 5700U", cs: 78, gpu: "AMD Radeon Graphics", gs: 28, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '15.6" FHD (1920×1080) IPS 300 nits', ds: 15.6, ref: 60, batt: 8, bc: "45Wh", w: 1.9, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen4-extra", name: "ThinkPad E14 Gen 4 (Ryzen 7)", year: 2022, base: P.eModern, desc: "AMD Ryzen 7 5825U config of the E14 Gen 4.",
+    variants: [
+      V("thinkpad-e14-gen4-r7", "ThinkPad E14 Gen 4 (Ryzen 7 · 16GB · 512GB)", 899, 4.4, 234, "Ryzen 7 5825U with eight Zen 3+ cores in the E-series.", { cpu: "AMD Ryzen 7 5825U", cs: 79, gpu: "AMD Radeon Graphics", gs: 28, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 300 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e16-gen1-extra", name: "ThinkPad E16 Gen 1 (Ryzen 7)", year: 2023, base: base({ wifi: "Wi-Fi 6", bluetooth: "Bluetooth 5.1", buildMaterial: "Plastic", militaryCertification: "MIL-STD-810H", numpad: true }), desc: "AMD Ryzen 7 config of the 16-inch E16 Gen 1.",
+    variants: [
+      V("thinkpad-e16-gen1-r7", "ThinkPad E16 Gen 1 (Ryzen 7 · 16GB · 512GB)", 899, 4.5, 98, "Ryzen 7 7730U with eight cores on the big 16-inch screen.", { cpu: "AMD Ryzen 7 7730U", cs: 78, gpu: "AMD Radeon Graphics", gs: 28, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '16" WUXGA (1920×1200) IPS 300 nits', ds: 16, res: "WUXGA (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "57Wh", w: 1.97, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+];

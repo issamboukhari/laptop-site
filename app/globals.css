@@ -1,0 +1,197 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --gen-bg: #fafafa;
+  --gen-fg: #0a0a0a;
+  --gen-card: #ffffff;
+  --gen-card-hover: #f5f5f5;
+  --gen-border: #e5e5e5;
+  --gen-muted: #a3a3a3;
+  --gen-accent: #6d28d9;
+  --gen-accent-light: #8b5cf6;
+  --gen-accent-glow: rgba(139, 92, 246, 0.15);
+  --gen-gradient-start: #6d28d9;
+  --gen-gradient-end: #2563eb;
+}
+
+.dark {
+  --gen-bg: #09090b;
+  --gen-fg: #fafafa;
+  --gen-card: #18181b;
+  --gen-card-hover: #27272a;
+  --gen-border: #27272a;
+  --gen-muted: #71717a;
+  --gen-accent: #8b5cf6;
+  --gen-accent-light: #a78bfa;
+  --gen-accent-glow: rgba(139, 92, 246, 0.25);
+  --gen-gradient-start: #7c3aed;
+  --gen-gradient-end: #3b82f6;
+}
+
+@theme inline {
+  --color-gen-bg: var(--gen-bg);
+  --color-gen-fg: var(--gen-fg);
+  --color-gen-card: var(--gen-card);
+  --color-gen-card-hover: var(--gen-card-hover);
+  --color-gen-border: var(--gen-border);
+  --color-gen-muted: var(--gen-muted);
+  --color-gen-accent: var(--gen-accent);
+  --color-gen-accent-light: var(--gen-accent-light);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--gen-bg);
+  color: var(--gen-fg);
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile UX hardening
+   - Kill accidental horizontal scroll on phones (long spec strings, wide
+     chips, shadows bleeding past the viewport).
+   - Remove the grey tap flash on Android/WebView for a native feel.
+--------------------------------------------------------------------------- */
+html,
+body {
+  overflow-x: clip;
+  max-width: 100vw;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px; /* prevents iOS/Android auto-zoom on focus */
+}
+
+@media (hover: none) and (pointer: coarse) {
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    min-height: 40px;
+  }
+}
+
+/* Safe-area helper for notched phones / Capacitor WebView */
+@utility pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+}
+
+.gen-glass {
+  background: color-mix(in srgb, var(--gen-card) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.gen-gradient-text {
+  background: linear-gradient(135deg, var(--gen-gradient-start), var(--gen-gradient-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gen-glow {
+  box-shadow: 0 0 20px var(--gen-accent-glow), 0 0 60px var(--gen-accent-glow);
+}
+
+.gen-card-shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.dark .gen-card-shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gen-border) var(--gen-bg);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gen-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gen-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gen-muted);
+}
+
+@keyframes gen-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gen-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gen-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes gen-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-up {
+  animation: gen-fade-up 0.35s ease-out both;
+}
+
+.animate-fade-in {
+  animation: gen-fade-in 0.3s ease-out both;
+}
+
+.animate-pop {
+  animation: gen-pop 0.25s ease-out both;
+}
+
+.animate-slide-in {
+  animation: gen-slide-in 0.3s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-pop,
+  .animate-slide-in {
+    animation: none;
+  }
+}

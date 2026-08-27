@@ -1,0 +1,67 @@
+// E-series dataset.
+import { base, P, V } from "./thinkpad-data-common.mjs";
+
+export const E_SERIES = [
+  { id: "lenovo-thinkpad-e460", name: "ThinkPad E460", year: 2016, base: P.eOld, desc: "Entry-level 14-inch business laptop with classic ThinkPad keyboard.",
+    variants: [
+      V("thinkpad-e460-i5", "ThinkPad E460 (i5 · 8GB · 256GB)", 549, 4.0, 412, "Entry-level business laptop with a durable plastic chassis and the classic ThinkPad keyboard.", { cpu: "Intel Core i5-6200U", cs: 58, gpu: "Intel HD Graphics 520", gs: 12, ram: 8, ramT: "DDR3L", storage: 256, disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 7, w: 1.95, ports: ["USB-C", "USB-A x2", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e470", name: "ThinkPad E470", year: 2017, base: base({ wifi: "Wi-Fi 5 (802.11ac)", bluetooth: "Bluetooth 4.1", fingerprint: false, privacyShutter: false, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G" }), desc: "Budget business laptop with 7th-gen Intel and a spill-resistant keyboard.",
+    variants: [
+      V("thinkpad-e470-i5", "ThinkPad E470 (i5 · 8GB · 256GB)", 549, 4.1, 356, "Spill-resistant keyboard, HDMI output, and solid build for the price.", { cpu: "Intel Core i5-7200U", cs: 60, gpu: "Intel HD Graphics 620", gs: 14, ram: 8, ramT: "DDR4", storage: 256, disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 7, w: 1.9, ports: ["USB-C", "USB-A x2", "HDMI 1.4", "Ethernet", "SD Card", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e490", name: "ThinkPad E490", year: 2019, base: P.eOld, desc: "Reliable 14-inch business laptop with 8th-gen Intel and dual-drive support.",
+    variants: [
+      V("thinkpad-e490-i5", "ThinkPad E490 (i5 · 8GB · 256GB)", 699, 4.2, 489, "Two drive slots, ThinkShutter webcam cover, and MIL-STD-810G durability.", { cpu: "Intel Core i5-8265U", cs: 66, gpu: "Intel UHD Graphics 620", gs: 18, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 256, ss: "2× M.2", disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.75, ports: ["USB-C", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+      V("thinkpad-e490-i7", "ThinkPad E490 (i7 · 16GB · 512GB)", 849, 4.3, 214, "Higher-spec E490 with i7, 16GB RAM, and 512GB NVMe storage.", { cpu: "Intel Core i7-8565U", cs: 71, gpu: "Intel UHD Graphics 620", gs: 18, ram: 16, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 512, ss: "2× M.2", disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.75, ports: ["USB-C", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e495", name: "ThinkPad E495", year: 2019, base: base({ wifi: "Wi-Fi 5 (802.11ac)", bluetooth: "Bluetooth 4.1", fingerprint: false, privacyShutter: false, buildMaterial: "Plastic", militaryCertification: "MIL-STD-810G" }), desc: "AMD-powered 14-inch business laptop in the same E-series chassis.",
+    variants: [
+      V("thinkpad-e495-r5", "ThinkPad E495 (Ryzen 5 · 8GB · 256GB)", 649, 4.2, 298, "AMD Ryzen PRO power with the classic ThinkPad reliability at a budget price.", { cpu: "AMD Ryzen 5 3500U", cs: 62, gpu: "AMD Radeon Vega 8", gs: 22, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 256, ss: "2× M.2", disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.75, ports: ["USB-C", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen2", name: "ThinkPad E14 Gen 2", year: 2020, base: P.eModern, desc: "Modernized 14-inch business laptop with 10th-gen Intel or Ryzen 4000.",
+    variants: [
+      V("thinkpad-e14-gen2-i5", "ThinkPad E14 Gen 2 (i5 · 16GB · 512GB)", 749, 4.3, 421, "Comet Lake i5 with Wi-Fi 6 and a clean, durable business chassis.", { cpu: "Intel Core i5-10210U", cs: 67, gpu: "Intel UHD Graphics", gs: 18, ram: 16, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.59, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+      V("thinkpad-e14-gen2-r5", "ThinkPad E14 Gen 2 (Ryzen 5 · 8GB · 256GB)", 649, 4.2, 256, "Ryzen 4000 config with better iGPU performance for the same price tier.", { cpu: "AMD Ryzen 5 4500U", cs: 69, gpu: "AMD Radeon Graphics", gs: 25, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 256, disp: '14" FHD (1920×1080) IPS 250 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.59, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen3", name: "ThinkPad E14 Gen 3", year: 2021, base: P.eModern, desc: "11th-gen Intel or Ryzen 5000 with a brighter FHD display option.",
+    variants: [
+      V("thinkpad-e14-gen3-i5", "ThinkPad E14 Gen 3 (i5 · 16GB · 512GB)", 749, 4.3, 512, "Tiger Lake i5 with Iris Xe graphics and a 300-nit display.", { cpu: "Intel Core i5-1135G7", cs: 72, gpu: "Intel Iris Xe Graphics", gs: 30, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 300 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+      V("thinkpad-e14-gen3-i7", "ThinkPad E14 Gen 3 (i7 · 16GB · 512GB)", 949, 4.4, 231, "Tiger Lake i7 for heavier multitasking and office workloads.", { cpu: "Intel Core i7-1165G7", cs: 77, gpu: "Intel Iris Xe Graphics", gs: 32, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 300 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen4", name: "ThinkPad E14 Gen 4", year: 2022, base: P.eModern, desc: "12th-gen Intel with DDR4 and up to 40GB RAM in a refined E-series shell.",
+    variants: [
+      V("thinkpad-e14-gen4-i5", "ThinkPad E14 Gen 4 (i5 · 16GB · 512GB)", 729, 4.3, 387, "Alder Lake i5-1235U with hybrid cores and the dependable E-series build.", { cpu: "Intel Core i5-1235U", cs: 74, gpu: "Intel Iris Xe Graphics", gs: 30, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 300 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-e14-gen4-i7", "ThinkPad E14 Gen 4 (i7 · 16GB · 512GB)", 929, 4.4, 178, "i7-1255U config for demanding business productivity.", { cpu: "Intel Core i7-1255U", cs: 80, gpu: "Intel Iris Xe Graphics", gs: 32, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD (1920×1080) IPS 300 nits', ds: 14, ref: 60, batt: 8, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen5", name: "ThinkPad E14 Gen 5", year: 2023, base: P.eModern, desc: "13th-gen Intel or Ryzen 7030 with a taller 16:10 WUXGA display option.",
+    variants: [
+      V("thinkpad-e14-gen5-i5", "ThinkPad E14 Gen 5 (i5 · 16GB · 512GB)", 699, 4.4, 456, "Raptor Lake i5-1335U with up to 10 cores in a modern 16:10 chassis.", { cpu: "Intel Core i5-1335U", cs: 75, gpu: "Intel Iris Xe Graphics", gs: 30, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD+ (1920×1200) IPS 300 nits', ds: 14, res: "FHD+ (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-e14-gen5-r5", "ThinkPad E14 Gen 5 (Ryzen 5 · 16GB · 512GB)", 749, 4.5, 298, "Ryzen 5 PRO 7530U with Vega graphics — strong value and battery life.", { cpu: "AMD Ryzen 5 PRO 7530U", cs: 73, gpu: "AMD Radeon Graphics", gs: 28, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '14" FHD+ (1920×1200) IPS 300 nits', ds: 14, res: "FHD+ (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e14-gen6", name: "ThinkPad E14 Gen 6", year: 2024, base: P.eModern, desc: "Intel Core Ultra with AI acceleration and DDR5 in the latest E14.",
+    variants: [
+      V("thinkpad-e14-gen6-u5", "ThinkPad E14 Gen 6 (Ultra 5 · 16GB · 512GB)", 749, 4.4, 234, "Meteor Lake Core Ultra 5 125U with Intel Arc graphics and Wi-Fi 6E.", { cpu: "Intel Core Ultra 5 125U", cs: 76, gpu: "Intel Arc iGPU", gs: 35, ram: 16, ramT: "DDR5", ru: "Up to 48GB (2 slots)", storage: 512, disp: '14" FHD+ (1920×1200) IPS 300 nits', ds: 14, res: "FHD+ (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 2.1", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-e14-gen6-u7", "ThinkPad E14 Gen 6 (Ultra 7 · 16GB · 1TB)", 949, 4.5, 123, "Core Ultra 7 155U with 1TB NVMe for power users.", { cpu: "Intel Core Ultra 7 155U", cs: 82, gpu: "Intel Arc iGPU", gs: 35, ram: 16, ramT: "DDR5", ru: "Up to 48GB (2 slots)", storage: 1000, disp: '14" FHD+ (1920×1200) IPS 300 nits', ds: 14, res: "FHD+ (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "45Wh", w: 1.64, ports: ["USB-C x2", "USB-A x2", "HDMI 2.1", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e15-gen2", name: "ThinkPad E15 Gen 2", year: 2020, base: P.eModern, desc: "15.6-inch E-series with a comfortable keyboard and dual drive support.",
+    variants: [
+      V("thinkpad-e15-gen2-i5", "ThinkPad E15 Gen 2 (i5 · 8GB · 512GB)", 699, 4.2, 289, "Larger 15.6-inch screen for spreadsheet-heavy work at an entry price.", { cpu: "Intel Core i5-10210U", cs: 67, gpu: "Intel UHD Graphics", gs: 18, ram: 8, ramT: "DDR4", ru: "Up to 32GB (2 slots)", storage: 512, disp: '15.6" FHD (1920×1080) IPS 250 nits', ds: 15.6, ref: 60, batt: 8, bc: "45Wh", w: 1.9, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e15-gen3", name: "ThinkPad E15 Gen 3", year: 2021, base: P.eModern, desc: "11th-gen Intel 15.6-inch business laptop with discrete graphics option.",
+    variants: [
+      V("thinkpad-e15-gen3-i5", "ThinkPad E15 Gen 3 (i5 · 16GB · 512GB)", 729, 4.3, 198, "Tiger Lake i5 with optional MX450-class graphics for light creative work.", { cpu: "Intel Core i5-1135G7", cs: 72, gpu: "Intel Iris Xe Graphics", gs: 30, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '15.6" FHD (1920×1080) IPS 300 nits', ds: 15.6, ref: 60, batt: 8, bc: "45Wh", w: 1.9, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 10 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e15-gen4", name: "ThinkPad E15 Gen 4", year: 2022, base: P.eModern, desc: "12th-gen Intel 15.6-inch E-series with modern hybrid-core CPU.",
+    variants: [
+      V("thinkpad-e15-gen4-i5", "ThinkPad E15 Gen 4 (i5 · 16GB · 512GB)", 749, 4.3, 167, "Alder Lake i5-1235U keeps the E15 family current and productive.", { cpu: "Intel Core i5-1235U", cs: 74, gpu: "Intel Iris Xe Graphics", gs: 30, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '15.6" FHD (1920×1080) IPS 300 nits', ds: 15.6, ref: 60, batt: 8, bc: "45Wh", w: 1.9, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e16-gen1", name: "ThinkPad E16 Gen 1", year: 2023, base: base({ wifi: "Wi-Fi 6", bluetooth: "Bluetooth 5.1", buildMaterial: "Plastic", militaryCertification: "MIL-STD-810H", numpad: true }), desc: "16-inch 16:10 E-series with full numpad and 57Wh battery.",
+    variants: [
+      V("thinkpad-e16-gen1-i5", "ThinkPad E16 Gen 1 (i5 · 16GB · 512GB)", 799, 4.4, 143, "Taller 16-inch WUXGA panel plus a numeric keypad for office work.", { cpu: "Intel Core i5-1335U", cs: 75, gpu: "Intel Iris Xe Graphics", gs: 30, ram: 16, ramT: "DDR4", ru: "Up to 40GB (2 slots)", storage: 512, disp: '16" WUXGA (1920×1200) IPS 300 nits', ds: 16, res: "WUXGA (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "57Wh", w: 1.97, ports: ["USB-C x2", "USB-A x2", "HDMI 1.4", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-e16-gen2", name: "ThinkPad E16 Gen 2", year: 2024, base: base({ wifi: "Wi-Fi 6", bluetooth: "Bluetooth 5.1", buildMaterial: "Plastic", militaryCertification: "MIL-STD-810H", numpad: true }), desc: "Latest 16-inch E-series with Core Ultra and DDR5 memory.",
+    variants: [
+      V("thinkpad-e16-gen2-u5", "ThinkPad E16 Gen 2 (Ultra 5 · 16GB · 512GB)", 829, 4.4, 98, "Core Ultra 5 with Arc graphics on a roomy 16-inch WUXGA panel.", { cpu: "Intel Core Ultra 5 125U", cs: 76, gpu: "Intel Arc iGPU", gs: 35, ram: 16, ramT: "DDR5", ru: "Up to 48GB (2 slots)", storage: 512, disp: '16" WUXGA (1920×1200) IPS 300 nits', ds: 16, res: "WUXGA (1920×1200)", pt: "IPS", br: "300 nits", ref: 60, batt: 9, bc: "57Wh", w: 1.97, ports: ["USB-C x2", "USB-A x2", "HDMI 2.1", "Ethernet", "microSD", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+];

@@ -1,0 +1,18 @@
+{"export":"SIX_630","file":"hp-600.mjs","models":[
+["hp-elitebook-630-g8","EliteBook 630 G8",2021,"P.g8","13.3-inch business laptop with 11th-gen Intel Core.",13.3,"45Wh",9,"P8",[
+["hp-630-g8-i5-8","EliteBook 630 G8 (i5-1135G7/8GB/256GB)","i5_1135G7",8,256,1.31,849,4.0,65,"11th-gen i5 with 8GB in a compact 13.3-inch chassis."],
+["hp-630-g8-i5-16","EliteBook 630 G8 (i5-1135G7/16GB/512GB)","i5_1135G7",16,512,1.31,999,4.1,48,"16GB RAM for smoother multitasking."],
+["hp-630-g8-i7","EliteBook 630 G8 (i7-1165G7/16GB/512GB)","i7_1165G7",16,512,1.31,1099,4.2,38,"Top 630 G8 config with i7 processor."]]],
+["hp-elitebook-630-g9","EliteBook 630 G9",2022,"P.g9","13.3-inch business laptop with 12th-gen Intel Core.",13.3,"45Wh",9,"P8",[
+["hp-630-g9-i5-8","EliteBook 630 G9 (i5-1235U/8GB/256GB)","i5_1235U",8,256,1.34,879,4.0,72,"12th-gen i5 with efficient hybrid architecture."],
+["hp-630-g9-i5-16","EliteBook 630 G9 (i5-1235U/16GB/512GB)","i5_1235U",16,512,1.34,1029,4.1,55,"16GB RAM for smoother multitasking."],
+["hp-630-g9-i7","EliteBook 630 G9 (i7-1255U/16GB/512GB)","i7_1255U",16,512,1.34,1129,4.2,40,"i7 processor for demanding workloads."]]],
+["hp-elitebook-630-g10","EliteBook 630 G10",2023,"P.g10","13.3-inch business laptop with 13th-gen Intel Core.",13.3,"45Wh",9,"P8",[
+["hp-630-g10-i5-8","EliteBook 630 G10 (i5-1335U/8GB/256GB)","i5_1335U",8,256,1.35,899,4.0,58,"13th-gen i5 with P-core/E-core design."],
+["hp-630-g10-i5-16","EliteBook 630 G10 (i5-1335U/16GB/512GB)","i5_1335U",16,512,1.35,1049,4.1,45,"16GB RAM for productive multitasking."],
+["hp-630-g10-i7","EliteBook 630 G10 (i7-1355U/16GB/512GB)","i7_1355U",16,512,1.35,1149,4.2,35,"i7-1355U for top 630 performance."]]],
+["hp-elitebook-630-g11","EliteBook 630 G11",2024,"P.g11","13.3-inch business laptop with Intel Core Ultra.",13.3,"45Wh",9,"P9",[
+["hp-630-g11-u5-8","EliteBook 630 G11 (Core 5 120U/8GB/256GB)","u5_125U",8,256,1.33,929,4.1,42,"Intel Core 5 with NPU for AI workloads."],
+["hp-630-g11-u5-16","EliteBook 630 G11 (Core 5 120U/16GB/512GB)","u5_125U",16,512,1.33,1079,4.2,32,"16GB RAM with 512GB NVMe."],
+["hp-630-g11-u7","EliteBook 630 G11 (Core 7 150U/16GB/512GB)","u7_155U",16,512,1.33,1199,4.3,25,"Core 7 150U with enhanced NPU."]]]}
+]}

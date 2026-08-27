@@ -1,0 +1,23 @@
+▲ Next.js 16.3.1 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.69:3001
+- Environments: .env.local
+✓ Ready in 843ms
+✓ Running next.config.ts took 52ms
+
+ GET / 200 in 692ms (next.js: 334ms, application-code: 359ms)
+ GET /api/computers?limit=500 200 in 1006ms (next.js: 274ms, application-code: 733ms)
+ GET /api/computers?limit=500 200 in 17ms (next.js: 4ms, application-code: 14ms)
+ GET /api/computers/vivobook-16-vivobook-x1605-i5-1335u-8gb-512gb-fba3c572 200 in 1130ms (next.js: 1102ms, application-code: 28ms)
+ GET /api/computers/elitebook-845-g8-elitebook-845-g8-ryzen-7-pro-5850u-16gb-512gb-5b7fcb58 200 in 809ms (next.js: 779ms, application-code: 29ms)
+ POST /api/chat 200 in 71s (next.js: 124ms, application-code: 71s)
+ POST /api/chat 200 in 56s (next.js: 6ms, application-code: 56s)
+ POST /api/chat 200 in 109s (next.js: 5ms, application-code: 109s)
+ POST /api/chat 200 in 10.8s (next.js: 6ms, application-code: 10.8s)
+ POST /api/chat 200 in 2.6s (next.js: 7ms, application-code: 2.6s)
+ GET /compare?a=vivobook-16-vivobook-x1605-i5-1335u-8gb-512gb-fba3c572&b=elitebook-845-g8-elitebook-845-g8-ryzen-7-pro-5850u-16gb-512gb-5b7fcb58 200 in 142ms (next.js: 60ms, application-code: 82ms)
+ POST /api/chat 200 in 7.0s (next.js: 5ms, application-code: 6.9s)
+ POST /api/chat 200 in 2.3s (next.js: 8ms, application-code: 2.3s)
+ POST /api/chat 200 in 1599ms (next.js: 5ms, application-code: 1594ms)
+ GET /api/computers?limit=500 200 in 33ms (next.js: 5ms, application-code: 29ms)
+ GET /api/computers?limit=500 200 in 21ms (next.js: 4ms, application-code: 17ms)

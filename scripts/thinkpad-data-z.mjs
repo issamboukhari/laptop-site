@@ -1,0 +1,28 @@
+// Z-series dataset (premium ultrabooks).
+import { base, V } from "./thinkpad-data-common.mjs";
+
+const z13Base = base({ wifi: "Wi-Fi 6E", bluetooth: "Bluetooth 5.2", buildMaterial: "Recycled aluminum", militaryCertification: "MIL-STD-810H", coolingSystem: "Single fan + heat pipes", fans: "Single fan" });
+const z16Base = base({ wifi: "Wi-Fi 6E", bluetooth: "Bluetooth 5.2", buildMaterial: "Recycled aluminum", militaryCertification: "MIL-STD-810H", coolingSystem: "Dual fans + heat pipes", fans: "Dual fans" });
+
+export const Z_SERIES = [
+  { id: "lenovo-thinkpad-z13-gen1", name: "ThinkPad Z13 Gen 1", year: 2022, base: z13Base, desc: "Premium 13.3-inch ultrabook with AMD Ryzen 6000 and hemp fabric palm rest.",
+    variants: [
+      V("thinkpad-z13-gen1-r7", "ThinkPad Z13 Gen 1 (Ryzen 7 · 16GB · 512GB)", 1549, 4.5, 234, "Ryzen 7 PRO 6860Z with Radeon 680M in a vegan leather and hemp chassis.", { cpu: "AMD Ryzen 7 PRO 6860Z", cs: 82, gpu: "AMD Radeon 6880M", gs: 42, ram: 16, ramT: "LPDDR5", storage: 512, disp: '13.3" 2.8K OLED (2880×1800) Touch 400 nits', ds: 13.3, res: "2.8K (2880×1800)", pt: "OLED", br: "400 nits", ref: 60, batt: 11, bc: "51.5Wh", w: 1.23, ports: ["USB-C x2", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-z13-gen1-r7-pro", "ThinkPad Z13 Gen 1 (Ryzen 7 PRO · 32GB · 1TB)", 1899, 4.6, 156, "Ryzen 7 PRO 6860Z with 32GB LPDDR5 and 1TB NVMe.", { cpu: "AMD Ryzen 7 PRO 6860Z", cs: 82, gpu: "AMD Radeon 6880M", gs: 42, ram: 32, ramT: "LPDDR5", storage: 1000, disp: '13.3" 2.8K OLED (2880×1800) Touch 400 nits', ds: 13.3, res: "2.8K (2880×1800)", pt: "OLED", br: "400 nits", ref: 60, batt: 10, bc: "51.5Wh", w: 1.23, ports: ["USB-C x2", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-z13-gen2", name: "ThinkPad Z13 Gen 2", year: 2023, base: base({ wifi: "Wi-Fi 6E", bluetooth: "Bluetooth 5.3", buildMaterial: "Recycled aluminum", militaryCertification: "MIL-STD-810H", coolingSystem: "Single fan + heat pipes", fans: "Single fan" }), desc: "Latest Z13 with Ryzen 7040 and 120Hz OLED display option.",
+    variants: [
+      V("thinkpad-z13-gen2-r7", "ThinkPad Z13 Gen 2 (Ryzen 7 · 16GB · 512GB)", 1599, 4.5, 178, "Ryzen 7 PRO 7840U with Radeon 780M and NPU for AI tasks.", { cpu: "AMD Ryzen 7 PRO 7840U", cs: 84, gpu: "AMD Radeon 780M", gs: 42, ram: 16, ramT: "LPDDR5x", storage: 512, disp: '13.3" 2.8K OLED (2880×1800) 120Hz 400 nits', ds: 13.3, res: "2.8K (2880×1800)", pt: "OLED", br: "400 nits", ref: 120, batt: 11, bc: "51.5Wh", w: 1.23, ports: ["USB-C x2", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-z13-gen2-r7-32", "ThinkPad Z13 Gen 2 (Ryzen 7 PRO · 32GB · 1TB)", 1949, 4.6, 112, "Ryzen 7 PRO 7840U with 32GB LPDDR5x and 1TB storage.", { cpu: "AMD Ryzen 7 PRO 7840U", cs: 84, gpu: "AMD Radeon 780M", gs: 42, ram: 32, ramT: "LPDDR5x", storage: 1000, disp: '13.3" 2.8K OLED (2880×1800) 120Hz 400 nits', ds: 13.3, res: "2.8K (2880×1800)", pt: "OLED", br: "400 nits", ref: 120, batt: 10, bc: "51.5Wh", w: 1.23, ports: ["USB-C x2", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-z16-gen1", name: "ThinkPad Z16 Gen 1", year: 2022, base: z16Base, desc: "16-inch premium ultrabook with AMD Ryzen 6000 and optional discrete GPU.",
+    variants: [
+      V("thinkpad-z16-gen1-r7", "ThinkPad Z16 Gen 1 (Ryzen 7 · 16GB · 512GB)", 1699, 4.4, 178, "Ryzen 7 PRO 6860Z with Radeon 680M on a 16-inch 4K OLED panel.", { cpu: "AMD Ryzen 7 PRO 6860Z", cs: 82, gpu: "AMD Radeon 6880M", gs: 42, ram: 16, ramT: "LPDDR5", storage: 512, disp: '16" 4K UHD (3840×2400) OLED 400 nits', ds: 16, res: "4K UHD (3840×2400)", pt: "OLED", br: "400 nits", ref: 60, batt: 11, bc: "72Wh", w: 1.95, ports: ["USB-C x2", "USB-A", "SD Card", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-z16-gen1-r9-rx", "ThinkPad Z16 Gen 1 (Ryzen 9 · 32GB · 1TB · RX 6500M)", 2299, 4.5, 123, "Ryzen 9 PRO 6950H with RX 6500M discrete GPU.", { cpu: "AMD Ryzen 9 PRO 6950H", cores: "8C/16T", cs: 95, gpu: "AMD Radeon RX 6500M 4GB", gs: 60, ram: 32, ramT: "LPDDR5", storage: 1000, disp: '16" 4K UHD (3840×2400) OLED 400 nits', ds: 16, res: "4K UHD (3840×2400)", pt: "OLED", br: "400 nits", ref: 60, batt: 9, bc: "72Wh", w: 1.95, ports: ["USB-C x2", "USB-A", "SD Card", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+  { id: "lenovo-thinkpad-z16-gen2", name: "ThinkPad Z16 Gen 2", year: 2023, base: base({ wifi: "Wi-Fi 6E", bluetooth: "Bluetooth 5.3", buildMaterial: "Recycled aluminum", militaryCertification: "MIL-STD-810H", coolingSystem: "Dual fans + heat pipes", fans: "Dual fans" }), desc: "Latest 16-inch Z16 with Ryzen 7040 and Radeon RX graphics option.",
+    variants: [
+      V("thinkpad-z16-gen2-r7", "ThinkPad Z16 Gen 2 (Ryzen 7 · 16GB · 512GB)", 1799, 4.5, 143, "Ryzen 7 PRO 7840U with Radeon 780M on a 16-inch 4K OLED.", { cpu: "AMD Ryzen 7 PRO 7840U", cs: 84, gpu: "AMD Radeon 780M", gs: 42, ram: 16, ramT: "LPDDR5x", storage: 512, disp: '16" 4K UHD (3840×2400) OLED 400 nits', ds: 16, res: "4K UHD (3840×2400)", pt: "OLED", br: "400 nits", ref: 60, batt: 11, bc: "72Wh", w: 1.95, ports: ["USB-C x2", "USB-A", "SD Card", "3.5mm"], os: "Windows 11 Pro" }),
+      V("thinkpad-z16-gen2-r9-rx", "ThinkPad Z16 Gen 2 (Ryzen 9 · 32GB · 1TB · RX 7600S)", 2499, 4.6, 98, "Ryzen 9 PRO 7940HS with Radeon RX 7600S discrete GPU.", { cpu: "AMD Ryzen 9 PRO 7940HS", cores: "8C/16T", cs: 100, gpu: "AMD Radeon RX 7600S 8GB", gs: 72, ram: 32, ramT: "LPDDR5x", storage: 1000, disp: '16" 4K UHD (3840×2400) OLED 400 nits', ds: 16, res: "4K UHD (3840×2400)", pt: "OLED", br: "400 nits", ref: 60, batt: 8, bc: "72Wh", w: 1.95, ports: ["USB-C x2", "USB-A", "SD Card", "3.5mm"], os: "Windows 11 Pro" }),
+    ] },
+];
