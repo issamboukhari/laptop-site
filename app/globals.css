@@ -82,6 +82,11 @@ select {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
 }
 
+/* Padding for pages so content is not hidden behind the fixed mobile bottom nav. */
+@utility pb-mobile-nav {
+  padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+}
+
 .gen-glass {
   background: color-mix(in srgb, var(--gen-card) 70%, transparent);
   backdrop-filter: blur(12px);

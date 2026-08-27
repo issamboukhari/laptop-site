@@ -15,7 +15,12 @@ import {
 import { SmartSearch } from "@/components/search/SmartSearch";
 import { CompareBar, CompareBarSpacer } from "@/components/compare/CompareBar";
 import { ComputerModel, ComputerCategory } from "@/lib/data/types";
-import { AlertTriangle, RefreshCw, Loader2, Sparkles } from "lucide-react";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import {
+  saveCatalogToCache,
+  loadCatalogFromCache,
+} from "@/lib/storage/offline-cache";
+import { AlertTriangle, RefreshCw, Loader2, Sparkles, WifiOff } from "lucide-react";
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 200;
@@ -33,6 +38,59 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
   const [allModels, setAllModels] = useState<ComputerModel[]>(initialModels);
   const [initialLoading] = useState(false);
   const [loadError] = useState<string | null>(null);
+
+  // ── Offline-first: persist catalog + detect connectivity ────────────
+  const { online, refresh: refreshOnline } = useOnlineStatus();
+  const [isOffline, setIsOffline] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Save incoming models to cache on every successful render.
+  useEffect(() => {
+    if (initialModels.length > 0) {
+      saveCatalogToCache(initialModels);
+    }
+  }, [initialModels]);
+
+  // On mount, if server gave us nothing (offline / error), try the cache.
+  useEffect(() => {
+    if (initialModels.length === 0) {
+      const cached = loadCatalogFromCache();
+      if (cached && cached.length > 0) {
+        setAllModels(cached);
+        setIsOffline(true);
+      }
+    }
+  }, [initialModels]);
+
+  // Track online/offline transitions.
+  useEffect(() => {
+    setIsOffline(!online);
+  }, [online]);
+
+  // When coming back online, auto-refresh the catalog from the server.
+  useEffect(() => {
+    if (!online || refreshing) return;
+    let cancelled = false;
+    (async () => {
+      setRefreshing(true);
+      try {
+        const res = await fetch("/api/computers?limit=5000", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const models: ComputerModel[] = data?.models ?? [];
+        if (!cancelled && models.length > 0) {
+          setAllModels(models);
+          saveCatalogToCache(models);
+          setIsOffline(false);
+        }
+      } catch {
+        // still offline — keep using cache
+      } finally {
+        if (!cancelled) setRefreshing(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [online, refreshing]);
 
   const [search, setSearch] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -409,8 +467,8 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
               </div>
               <button
                 onClick={handleAiSearch}
-                disabled={aiSearching || !search.trim()}
-                title="Search for ANY computer in the world — Gemini researches it and saves it to the global database"
+                disabled={aiSearching || !search.trim() || isOffline}
+                title={isOffline ? "AI Search requires an internet connection" : "Search for ANY computer in the world — Gemini researches it and saves it to the global database"}
                 className="h-10 px-4 rounded-xl bg-gradient-to-r from-gen-accent to-fuchsia-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-1.5 shadow-lg shadow-gen-accent/20 hover:opacity-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
               >
                 {aiSearching ? (
@@ -436,6 +494,19 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
             counts={counts}
           />
         </section>
+
+        {/* Offline banner */}
+        {isOffline && (
+          <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-3">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-center gap-3">
+              <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-sm text-gen-fg">
+                <strong>Offline mode</strong> — showing cached data.
+                {refreshing ? " Reconnecting…" : " AI features are unavailable without internet."}
+              </p>
+            </div>
+          </section>
+        )}
 
         <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-6">
           <div className="flex items-center justify-between mb-4 gap-2">
@@ -615,8 +686,8 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
             <div className="flex flex-col items-center gap-2 pt-2 pb-4">
               <button
                 onClick={handleExpandMore}
-                disabled={expanding}
-                title="Ask Gemini to discover more real computers with these exact specifications"
+                disabled={expanding || isOffline}
+                title={isOffline ? "Requires internet connection" : "Ask Gemini to discover more real computers with these exact specifications"}
                 className="px-6 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2 bg-gen-accent/10 text-gen-accent border border-gen-accent/30 hover:bg-gen-accent/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {expanding ? (

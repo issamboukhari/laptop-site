@@ -1,11 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { Sparkles, AlertTriangle, RefreshCw, X, KeyRound, Wrench } from "lucide-react";
+import { Sparkles, AlertTriangle, RefreshCw, X, KeyRound, Wrench, WifiOff } from "lucide-react";
 import { ChatBubble } from "./ChatBubble";
 import { ChatInput } from "./ChatInput";
 import { TypingIndicator } from "./TypingIndicator";
 import { useGeminiChat } from "@/hooks/use-gemini-chat";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import { GeminiSetupDialog } from "./GeminiSetupDialog";
 import { cn } from "@/lib/utils/cn";
 
@@ -29,6 +30,7 @@ export function GeminiChatPanel({ computerIds }: GeminiChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastQuestion, setLastQuestion] = useState("");
   const [setupOpen, setSetupOpen] = useState(false);
+  const { online } = useOnlineStatus();
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -76,6 +78,16 @@ export function GeminiChatPanel({ computerIds }: GeminiChatPanelProps) {
             )}
           </div>
         </div>
+
+        {/* Offline warning */}
+        {!online && (
+          <div className="px-4 py-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+            <p className="text-xs text-amber-300">
+              AI Chat requires an internet connection. Connect to use Gemini.
+            </p>
+          </div>
+        )}
 
         <div
           ref={scrollRef}
@@ -183,7 +195,7 @@ export function GeminiChatPanel({ computerIds }: GeminiChatPanelProps) {
               setLastQuestion(q);
               sendMessage(q);
             }}
-            disabled={isLoading || computerIds.length === 0}
+            disabled={isLoading || computerIds.length === 0 || !online}
           />
         </div>
       </div>

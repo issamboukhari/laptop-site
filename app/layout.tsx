@@ -108,7 +108,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: themeScript }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-gen-bg text-gen-fg">
+      <body className="min-h-full flex flex-col bg-gen-bg text-gen-fg pb-mobile-nav">
         {children}
       </body>
     </html>
