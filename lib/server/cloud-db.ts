@@ -5,6 +5,9 @@ import {
   modelSignature,
   modelNameKey,
   normGeneration,
+  findExistingModel,
+  findExistingVariant,
+  upsertVariant,
 } from "./model-normalize";
 
 /**
@@ -164,6 +167,7 @@ export interface CloudSaveResult {
  *  1. exact id match
  *  2. exact signature match (brand|family|name|normalized-generation)
  *  3. same name_key with equivalent normalized generation → merge variants
+ *  4. variant-level: same hardware fingerprint (regardless of price) → merge
  * Writes are also mirrored to the local fallback store via `localFallback`.
  */
 export async function saveModelToCloud(
@@ -171,33 +175,30 @@ export async function saveModelToCloud(
   existingCatalog: ComputerModel[],
   localFallback: (m: ComputerModel) => Promise<void>
 ): Promise<CloudSaveResult> {
-  // ---- Level A: merge into an existing catalog entry with same name key ----
-  const incomingKey = modelNameKey(model.brand, model.family, model.name);
-  const incomingGen = normGeneration(model.generation);
-
-  const twinInCatalog = existingCatalog.find((m) => {
-    if (modelNameKey(m.brand, m.family, m.name) !== incomingKey) return false;
-    return normGeneration(m.generation) === incomingGen;
-  });
+  // ---- Level A: merge into an existing catalog entry with same identity ----
+  const twinInCatalog = findExistingModel(model, existingCatalog);
 
   let target = model;
   let deduped = false;
 
   if (twinInCatalog) {
-    // Merge only configurations that don't exist yet.
-    const existingVariantIds = new Set(twinInCatalog.variants.map((v) => v.id));
-    const newVariants = model.variants.filter((v) => !existingVariantIds.has(v.id));
+    // Merge variants: same-id, same-hardware-fingerprint, or new
+    let mergedVariants = [...twinInCatalog.variants];
+    for (const incoming of model.variants) {
+      mergedVariants = upsertVariant({ ...twinInCatalog, variants: mergedVariants }, incoming);
+    }
+    const newCount = mergedVariants.length - twinInCatalog.variants.length;
     target = {
       ...twinInCatalog,
-      variants:
-        newVariants.length > 0 ? [...twinInCatalog.variants, ...newVariants] : twinInCatalog.variants,
+      variants: mergedVariants,
     };
-    deduped = newVariants.length === 0;
+    deduped = newCount === 0;
   }
 
   // ---- Level B: check cloud for the same signature/name-key before writing ----
   if (isSupabaseConfigured()) {
     try {
+      const incomingKey = modelNameKey(model.brand, model.family, model.name);
       const candidates = await sbSelect<ComputerModelRow>(TABLE, {
         filters: { name_key: `eq.${incomingKey}` },
         columns: "*",
@@ -207,22 +208,26 @@ export async function saveModelToCloud(
       const twinInCloud = candidates.find(
         (row) =>
           row.signature === modelSignature(target) ||
-          normGeneration(row.generation) === incomingGen
+          normGeneration(row.generation) === normGeneration(model.generation)
       );
 
       if (twinInCloud) {
         const cloudModel = rowToModel(twinInCloud);
-        const existingVariantIds = new Set(cloudModel.variants.map((v) => v.id));
-        const newVariants = target.variants.filter((v) => !existingVariantIds.has(v.id));
+        // Merge variants using fingerprint-based dedup
+        let mergedVariants = [...cloudModel.variants];
+        for (const incoming of target.variants) {
+          mergedVariants = upsertVariant({ ...cloudModel, variants: mergedVariants }, incoming);
+        }
+        const newCount = mergedVariants.length - cloudModel.variants.length;
 
-        if (newVariants.length === 0) {
+        if (newCount === 0) {
           // Fully duplicate — reuse the stored row, write nothing.
           return { saved: false, model: cloudModel, deduped: true };
         }
 
         target = {
           ...cloudModel,
-          variants: [...cloudModel.variants, ...newVariants],
+          variants: mergedVariants,
         };
         deduped = false;
       }

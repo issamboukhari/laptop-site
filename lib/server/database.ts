@@ -9,6 +9,7 @@ import {
 import { computerModels, enrichSpecs, MODEL_BASE_SPECS } from "../data/computers";
 import { getCloudModels, invalidateCloudCache } from "./cloud-db";
 import { modelMatchesFilters, findMatchingVariants } from "./variant-matcher";
+import { findExistingModel, findExistingVariant, upsertVariant } from "./model-normalize";
 
 const CUSTOM_DB_PATH = path.join(process.cwd(), ".data", "computers-custom.json");
 
@@ -182,14 +183,17 @@ function matchFilters(m: ComputerModel, f: SearchFilters): boolean {
 
 export async function saveCustomModel(model: ComputerModel): Promise<void> {
   const custom = await loadCustomModels();
-  const existingIdx = custom.findIndex((m) => m.id === model.id);
-  if (existingIdx >= 0) {
-    const existing = custom[existingIdx];
-    const existingVariantIds = new Set(existing.variants.map((v) => v.id));
+
+  // Use normalized identity to find existing model (not just ID)
+  const existing = findExistingModel(model, custom);
+
+  if (existing) {
+    // Merge variants using fingerprint-based dedup
+    let mergedVariants = [...existing.variants];
     for (const v of model.variants) {
-      if (!existingVariantIds.has(v.id)) existing.variants.push(v);
+      mergedVariants = upsertVariant({ ...existing, variants: mergedVariants }, v);
     }
-    custom[existingIdx] = existing;
+    existing.variants = mergedVariants;
   } else {
     custom.push(model);
   }
