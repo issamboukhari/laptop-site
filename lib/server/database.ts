@@ -8,6 +8,7 @@ import {
 } from "../data/types";
 import { computerModels, enrichSpecs, MODEL_BASE_SPECS } from "../data/computers";
 import { getCloudModels, invalidateCloudCache } from "./cloud-db";
+import { modelMatchesFilters, findMatchingVariants } from "./variant-matcher";
 
 const CUSTOM_DB_PATH = path.join(process.cwd(), ".data", "computers-custom.json");
 
@@ -85,10 +86,26 @@ export async function queryModels(
   filters: SearchFilters,
   offset = 0,
   limit = 20
-): Promise<{ models: ComputerModel[]; total: number }> {
+): Promise<{ models: ComputerModel[]; total: number; matchingVariants?: Record<string, string[]> }> {
   const all = await getAllModels();
   const filtered = all.filter((m) => matchFilters(m, filters));
-  return { models: filtered.slice(offset, offset + limit), total: filtered.length };
+  const sliced = filtered.slice(offset, offset + limit);
+
+  // Build a map of model ID → matching variant IDs for the sliced results.
+  // This is optional/backward-compatible — existing consumers can ignore it.
+  const matchingVariants: Record<string, string[]> = {};
+  for (const m of sliced) {
+    const matching = findMatchingVariants(m, filters);
+    if (matching.length > 0 && matching.length < m.variants.length) {
+      matchingVariants[m.id] = matching.map((v) => v.id);
+    }
+  }
+
+  return {
+    models: sliced,
+    total: filtered.length,
+    ...(Object.keys(matchingVariants).length > 0 ? { matchingVariants } : {}),
+  };
 }
 
 export async function getFilterFacets(filters?: SearchFilters): Promise<FilterFacets> {
@@ -160,30 +177,7 @@ export async function getFilterFacets(filters?: SearchFilters): Promise<FilterFa
 }
 
 function matchFilters(m: ComputerModel, f: SearchFilters): boolean {
-  if (f.brand && m.brand.toLowerCase() !== f.brand.toLowerCase()) return false;
-  if (f.family && (!m.family || !m.family.toLowerCase().includes(f.family.toLowerCase()))) return false;
-  if (f.category && m.category !== f.category) return false;
-  if (f.minYear && m.year < f.minYear) return false;
-  if (f.maxYear && m.year > f.maxYear) return false;
-
-  const primary = m.variants[0];
-  if (!primary) return true;
-
-  if (f.minRam && primary.specs.ram < f.minRam) return false;
-  if (f.maxRam && primary.specs.ram > f.maxRam) return false;
-  if (f.minStorage && primary.specs.storage < f.minStorage) return false;
-  if (f.maxStorage && primary.specs.storage > f.maxStorage) return false;
-  if (f.screenSize && primary.specs.displaySize !== f.screenSize) return false;
-  if (f.touchscreen !== undefined && primary.specs.touchscreen !== f.touchscreen) return false;
-
-  if (f.minPrice || f.maxPrice) {
-    const minV = Math.min(...m.variants.map((v) => v.price));
-    const maxV = Math.max(...m.variants.map((v) => v.price));
-    if (f.minPrice && maxV < f.minPrice) return false;
-    if (f.maxPrice && minV > f.maxPrice) return false;
-  }
-
-  return true;
+  return modelMatchesFilters(m, f);
 }
 
 export async function saveCustomModel(model: ComputerModel): Promise<void> {

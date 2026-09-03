@@ -10,6 +10,7 @@ import {
   getFilterFacets,
   queryModels,
 } from "./database";
+import { modelMatchesFilters } from "./variant-matcher";
 
 // ---------------------------------------------------------------------------
 // Query normalization
@@ -905,27 +906,7 @@ function toRanked(usedFuzzy: boolean) {
 // ---------------------------------------------------------------------------
 
 function matchFiltersPost(m: ComputerModel, f: SearchFilters): boolean {
-  if (f.brand && m.brand.toLowerCase() !== f.brand.toLowerCase()) return false;
-  if (f.family && (!m.family || !m.family.toLowerCase().includes(f.family.toLowerCase())))
-    return false;
-  if (f.category && m.category !== f.category) return false;
-  if (f.minYear && m.year < f.minYear) return false;
-  if (f.maxYear && m.year > f.maxYear) return false;
-  const primary = m.variants[0];
-  if (!primary) return true;
-  if (f.minRam && primary.specs.ram < f.minRam) return false;
-  if (f.maxRam && primary.specs.ram > f.maxRam) return false;
-  if (f.minStorage && primary.specs.storage < f.minStorage) return false;
-  if (f.maxStorage && primary.specs.storage > f.maxStorage) return false;
-  if (f.screenSize && primary.specs.displaySize !== f.screenSize) return false;
-  if (f.touchscreen !== undefined && primary.specs.touchscreen !== f.touchscreen) return false;
-  if (f.minPrice || f.maxPrice) {
-    const minV = Math.min(...m.variants.map((v) => v.price));
-    const maxV = Math.max(...m.variants.map((v) => v.price));
-    if (f.minPrice && maxV < f.minPrice) return false;
-    if (f.maxPrice && minV > f.maxPrice) return false;
-  }
-  return true;
+  return modelMatchesFilters(m, f);
 }
 
 export async function searchModels(
