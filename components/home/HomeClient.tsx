@@ -32,17 +32,29 @@ interface AiSearchResponse {
   interpretedAs?: string;
 }
 
-export function HomePageClient({ initialModels }: { initialModels: ComputerModel[] }) {
-  // Catalog arrives server-rendered (RSC) — no client fetch, no CORS, no
-  // skeleton flash. Kept in state so AI-discovered models can extend it.
-  const [allModels, setAllModels] = useState<ComputerModel[]>(initialModels);
+export function HomePageClient({
+  initialModels,
+  categoryCounts: serverCategoryCounts,
+  initialTotal,
+}: {
+  initialModels: ComputerModel[];
+  categoryCounts: Record<string, number>;
+  initialTotal: number;
+}) {
+  // Server provides the first page of models + precomputed category counts.
+  // Additional pages are fetched via /api/computers on category switch or "Load More".
+  const [browseResults, setBrowseResults] = useState<ComputerModel[]>(initialModels);
+  const [browseTotal, setBrowseTotal] = useState(initialTotal);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
   const [initialLoading] = useState(false);
   const [loadError] = useState<string | null>(null);
 
   // ── Offline-first: persist catalog + detect connectivity ────────────
   const { online } = useOnlineStatus();
   const [isOffline, setIsOffline] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const [reconnecting, setReconnecting] = useState(false);
   // Post-hydration gate for the adjustments below (SSR HTML stays as-is).
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -65,7 +77,8 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
     setCacheChecked(true);
     const cached = loadCatalogFromCache();
     if (cached && cached.length > 0) {
-      setAllModels(cached);
+      setBrowseResults(cached);
+      setBrowseTotal(cached.length);
       setIsOffline(true);
     }
   }
@@ -77,29 +90,33 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
   }
 
   // When coming back online, auto-refresh the catalog from the server.
+  // Uses a ref guard (not state) to avoid re-triggering on guard changes.
   useEffect(() => {
-    if (!online || refreshing) return;
+    if (!online || refreshingRef.current) return;
     let cancelled = false;
     (async () => {
-      setRefreshing(true);
+      refreshingRef.current = true;
+      setReconnecting(true);
       try {
-        const res = await fetch("/api/computers?limit=5000", { cache: "no-store" });
+        const res = await fetch("/api/computers?limit=100", { cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json();
         const models: ComputerModel[] = data?.models ?? [];
         if (!cancelled && models.length > 0) {
-          setAllModels(models);
+          setBrowseResults(models);
+          setBrowseTotal(models.length);
           saveCatalogToCache(models);
           setIsOffline(false);
         }
       } catch {
         // still offline — keep using cache
       } finally {
-        if (!cancelled) setRefreshing(false);
+        refreshingRef.current = false;
+        if (!cancelled) setReconnecting(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [online, refreshing]);
+  }, [online]);
 
   const [search, setSearch] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -170,22 +187,100 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
     if (!isSearchMode) searchAbortRef.current?.abort();
   }, [isSearchMode]);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: allModels.length };
-    allModels.forEach((m) => {
-      c[m.category] = (c[m.category] || 0) + 1;
-    });
-    return c;
-  }, [allModels]);
+  // Category counts are precomputed on the server — no client-side full-catalog scan.
+  const counts = serverCategoryCounts;
 
-  // Browsing mode: client-side category filter over the full catalog.
-  const browsed = useMemo(() => {
-    if (category === "all") return allModels;
-    return allModels.filter((m) => m.category === category);
-  }, [allModels, category]);
+  // Browsing mode: fetch from API when category changes.
+  // "Load More" is handled separately by setVisibleCount which triggers
+  // a re-render with more items from the already-fetched results.
+  const browseAbortRef = useRef<AbortController | null>(browseResults.length > 0 ? new AbortController() : null);
+  const browseFetchedRef = useRef(browseResults.length > 0);
 
-  const displayModels = isSearchMode ? searchResults ?? [] : browsed;
-  const totalResults = isSearchMode ? searchTotal : browsed.length;
+  useEffect(() => {
+    // Don't fetch if we're in search mode.
+    if (isSearchMode) return;
+    // Skip the first run — the server already provided the initial page.
+    if (!browseFetchedRef.current) {
+      browseFetchedRef.current = true;
+      return;
+    }
+
+    browseAbortRef.current?.abort();
+    const controller = new AbortController();
+    browseAbortRef.current = controller;
+
+    setBrowseLoading(true);
+    setBrowseError(null);
+
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: "0" });
+    if (category !== "all") params.set("category", category);
+
+    fetch(`/api/computers?${params.toString()}`, { signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) {
+          let message = "Failed to load computers. Please try again.";
+          try {
+            const err = await r.json();
+            if (typeof err?.error?.message === "string") message = err.error.message;
+          } catch {}
+          throw new Error(message);
+        }
+        return r.json();
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setBrowseResults(data.models || []);
+        setBrowseTotal(data.total ?? 0);
+        setBrowseLoading(false);
+      })
+      .catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setBrowseError(
+          e instanceof Error ? e.message : "Failed to load computers."
+        );
+        setBrowseLoading(false);
+      });
+
+    return () => { controller.abort(); };
+  // category change triggers refetch; isSearchMode gates the effect.
+  }, [category, isSearchMode]);
+
+  // "Load More" — fetch additional items for the current category.
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount((c) => c + PAGE_SIZE);
+  }, []);
+
+  useEffect(() => {
+    // Only fetch more if visibleCount was increased beyond what we have.
+    if (isSearchMode || visibleCount <= PAGE_SIZE) return;
+
+    browseAbortRef.current?.abort();
+    const controller = new AbortController();
+    browseAbortRef.current = controller;
+
+    const params = new URLSearchParams({ limit: String(visibleCount), offset: "0" });
+    if (category !== "all") params.set("category", category);
+
+    fetch(`/api/computers?${params.toString()}`, { signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) throw new Error("Failed to load more.");
+        return r.json();
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setBrowseResults(data.models || []);
+        setBrowseTotal(data.total ?? 0);
+      })
+      .catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setBrowseError(e instanceof Error ? e.message : "Failed to load more.");
+      });
+
+    return () => { controller.abort(); };
+  }, [visibleCount, category, isSearchMode]);
+
+  const displayModels = isSearchMode ? searchResults ?? [] : browseResults;
+  const totalResults = isSearchMode ? searchTotal : browseTotal;
   const visible =
     isSearchMode ? displayModels.slice(0, visibleCount) : displayModels.slice(0, visibleCount);
 
@@ -458,8 +553,8 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
     void runAiSearch(search.trim());
   }, [search, runAiSearch]);
 
-  const loading = initialLoading || (isSearchMode && searchLoading && !searchResults);
-  const pageError = !isSearchMode ? loadError : null;
+  const loading = initialLoading || browseLoading || (isSearchMode && searchLoading && !searchResults);
+  const pageError = !isSearchMode ? (loadError || browseError) : null;
   const showEmptyState =
     !loading &&
     !pageError &&
@@ -524,7 +619,7 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
               <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
               <p className="text-sm text-gen-fg">
                 <strong>Offline mode</strong> — showing cached data.
-                {refreshing ? " Reconnecting…" : " AI features are unavailable without internet."}
+                {reconnecting ? " Reconnecting…" : " AI features are unavailable without internet."}
               </p>
             </div>
           </section>
@@ -545,7 +640,7 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
                 </>
               ) : (
                 <span>
-                  <strong className="text-gen-fg">{browsed.length}</strong> models found
+                  <strong className="text-gen-fg">{browseTotal}</strong> models found
                 </span>
               )}
             </p>
@@ -739,7 +834,7 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
           {hasMore && !loading && (
             <div className="flex justify-center pt-2 pb-10">
               <button
-                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                onClick={handleLoadMore}
                 className="px-7 py-2.5 rounded-xl text-sm font-semibold bg-gen-card text-gen-accent border border-gen-accent/30 hover:bg-gen-accent/10 transition-colors cursor-pointer"
               >
                 Load More ({Math.min(PAGE_SIZE, totalResults - visibleCount)} more)
