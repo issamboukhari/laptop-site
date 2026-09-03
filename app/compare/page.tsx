@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { CompareBarSpacer } from "@/components/compare/CompareBar";
@@ -271,8 +271,14 @@ function SlotCard({
 // ---------------------------------------------------------------------------
 
 function CompareContent() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // Client-only gate (localStorage reads below must not run during SSR).
+  // useSyncExternalStore keeps server HTML (false) and first client render
+  // identical, then flips to true after hydration — no effect needed.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   const { selectedIds, remove, replaceAt, setAll, clear } = useCompareSelection();
   const { addRecent } = useRecentComputers();

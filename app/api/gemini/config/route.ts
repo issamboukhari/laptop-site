@@ -7,7 +7,6 @@ import {
 } from "@/lib/server/gemini";
 import {
   assertContentLength,
-  errorResponse,
   logError,
   parseJsonBody,
 } from "@/lib/server/api-utils";

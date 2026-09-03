@@ -492,7 +492,7 @@ function emitVariantHTML(v, m) {
 }
 const BASE_ORDER=["wifi","bluetooth","fingerprint","faceRecognition","irCamera","tpm","privacyShutter","smartCardReader","backlitKeyboard","rgbKeyboard","keyboardLayout","numpad","stylusSupport","buildMaterial","militaryCertification","coolingSystem","fans","warranty"];
 // Import base specs from hp-common
-import { base as baseFn, P } from "./hp-common.mjs";
+import { P } from "./hp-common.mjs";
 // Map base keys to hp-common preset objects
 const BASE_MAP = {
   "P.g5": P.g5, "P.g6": P.g6, "P.g7": P.g7, "P.g8": P.g8,

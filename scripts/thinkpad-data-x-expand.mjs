@@ -1,5 +1,5 @@
 // X-series expansion — older models and extra configs.
-import { base, P, V } from "./thinkpad-data-common.mjs";
+import { base, V } from "./thinkpad-data-common.mjs";
 
 export const X_SERIES_EXPAND = [
   { id: "lenovo-thinkpad-x220", name: "ThinkPad X220", year: 2011, base: base({ wifi: "Wi-Fi 4 (802.11n)", bluetooth: "Bluetooth 3.0", buildMaterial: "Carbon fiber + magnesium", militaryCertification: "MIL-STD-810G", tpm: "TPM 1.2", coolingSystem: "Single fan", fans: "Single fan" }), desc: "12.5-inch ultraportable with Sandy Bridge and classic 7-row keyboard.",

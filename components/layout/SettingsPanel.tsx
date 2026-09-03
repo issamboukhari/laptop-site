@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "@/hooks/use-theme";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { X } from "lucide-react";
 
 const ACCENTS = [
@@ -41,15 +41,29 @@ export function SettingsPanel({ open, onClose }: Props) {
   const { mode, setTheme } = useTheme();
   const [accent, setAccentState] = useState("violet");
   const [fontSize, setFontSizeState] = useState("normal");
+  const [prefsSynced, setPrefsSynced] = useState(false);
+  // Post-hydration gate so the committed HTML matches the defaults above.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
+  // Sync saved preferences once, after hydration (guarded render-phase
+  // adjustment — state only; the committed HTML still matches the defaults).
+  if (mounted && !prefsSynced) {
+    setPrefsSynced(true);
+    setAccentState(localStorage.getItem("gen-accent") || "violet");
+    setFontSizeState(localStorage.getItem("gen-font") || "normal");
+  }
+
+  // Apply the preferences to the document (idempotent style sets, no state
+  // written here — runs on sync and on every user change).
   useEffect(() => {
-    const saved = localStorage.getItem("gen-accent") || "violet";
-    setAccentState(saved);
-    applyAccent(saved);
-    const savedFont = localStorage.getItem("gen-font") || "normal";
-    setFontSizeState(savedFont);
-    applyFontSize(savedFont);
-  }, []);
+    if (!prefsSynced) return;
+    applyAccent(accent);
+    applyFontSize(fontSize);
+  }, [prefsSynced, accent, fontSize]);
 
   function applyAccent(id: string) {
     const root = document.documentElement;

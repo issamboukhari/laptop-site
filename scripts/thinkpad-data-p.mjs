@@ -1,5 +1,5 @@
 // P-series dataset (mobile workstations).
-import { base, P, V } from "./thinkpad-data-common.mjs";
+import { base, V } from "./thinkpad-data-common.mjs";
 
 const pWorkstation = base({ wifi: "Wi-Fi 6", bluetooth: "Bluetooth 5.1", buildMaterial: "Carbon fiber + magnesium", militaryCertification: "MIL-STD-810H", coolingSystem: "Dual fans + heat pipes", fans: "Dual fans" });
 const pWorkstationOld = base({ wifi: "Wi-Fi 5 (802.11ac)", bluetooth: "Bluetooth 4.1", buildMaterial: "Carbon fiber + magnesium", militaryCertification: "MIL-STD-810G", coolingSystem: "Dual fans + heat pipes", fans: "Dual fans" });

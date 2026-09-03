@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiApiKey, testGeminiConnection, diagnoseGeminiError } from "@/lib/server/gemini";
-import { assertContentLength, errorResponse, logError, parseJsonBody } from "@/lib/server/api-utils";
+import { assertContentLength, logError, parseJsonBody } from "@/lib/server/api-utils";
 
 export async function POST(request: NextRequest) {
   try {

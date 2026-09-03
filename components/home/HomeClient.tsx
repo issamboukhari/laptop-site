@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { ComputerGrid } from "@/components/computer/ComputerGrid";
@@ -40,9 +40,17 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
   const [loadError] = useState<string | null>(null);
 
   // ── Offline-first: persist catalog + detect connectivity ────────────
-  const { online, refresh: refreshOnline } = useOnlineStatus();
+  const { online } = useOnlineStatus();
   const [isOffline, setIsOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Post-hydration gate for the adjustments below (SSR HTML stays as-is).
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+  const [cacheChecked, setCacheChecked] = useState(false);
+  const [prevOnline, setPrevOnline] = useState<boolean | null>(null);
 
   // Save incoming models to cache on every successful render.
   useEffect(() => {
@@ -52,20 +60,21 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
   }, [initialModels]);
 
   // On mount, if server gave us nothing (offline / error), try the cache.
-  useEffect(() => {
-    if (initialModels.length === 0) {
-      const cached = loadCatalogFromCache();
-      if (cached && cached.length > 0) {
-        setAllModels(cached);
-        setIsOffline(true);
-      }
+  // Guarded render-phase adjustment — runs once, after hydration only.
+  if (mounted && !cacheChecked && initialModels.length === 0) {
+    setCacheChecked(true);
+    const cached = loadCatalogFromCache();
+    if (cached && cached.length > 0) {
+      setAllModels(cached);
+      setIsOffline(true);
     }
-  }, [initialModels]);
+  }
 
-  // Track online/offline transitions.
-  useEffect(() => {
+  // Track online/offline transitions (guarded render-phase adjustment).
+  if (mounted && prevOnline !== online) {
+    setPrevOnline(online);
     setIsOffline(!online);
-  }, [online]);
+  }
 
   // When coming back online, auto-refresh the catalog from the server.
   useEffect(() => {
@@ -141,82 +150,25 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
 
   const isSearchMode = debouncedQuery.trim().length > 0;
 
-  // Server search: relevance-ranked against the ENTIRE database.
+  // Leaving search mode clears stale results (guarded render-phase
+  // adjustment — only fires when there is something to clear).
+  if (
+    !isSearchMode &&
+    (searchResults !== null ||
+      searchError !== null ||
+      searchLoading ||
+      matchedTerms.length > 0)
+  ) {
+    setSearchResults(null);
+    setSearchError(null);
+    setSearchLoading(false);
+    setMatchedTerms([]);
+  }
+
+  // Abort any in-flight search once search mode is left (no state here).
   useEffect(() => {
-    if (!isSearchMode) {
-      searchAbortRef.current?.abort();
-      setSearchResults(null);
-      setSearchError(null);
-      setSearchLoading(false);
-      setMatchedTerms([]);
-      return;
-    }
-
-    // AI Search just applied its own results — don't overwrite them.
-    if (skipSearchFetchRef.current) {
-      skipSearchFetchRef.current = false;
-      return;
-    }
-    setAiNotice(null);
-
-    searchAbortRef.current?.abort();
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-    const reqId = ++searchRequestIdRef.current;
-
-    setSearchLoading(true);
-    const params = new URLSearchParams({
-      q: debouncedQuery,
-      limit: String(visibleCount),
-    });
-    if (category !== "all") params.set("category", category);
-
-    fetch(`/api/search?${params.toString()}`, { signal: controller.signal })
-      .then(async (r) => {
-        if (!r.ok) {
-          let message = "Search is unavailable right now. Please try again.";
-          try {
-            const err = await r.json();
-            if (typeof err?.error?.message === "string") message = err.error.message;
-          } catch {
-            // keep default
-          }
-          throw new Error(message);
-        }
-        return r.json();
-      })
-      .then((data) => {
-        if (reqId !== searchRequestIdRef.current || controller.signal.aborted) return;
-        setSearchResults(data.models || []);
-        setSearchTotal(data.total ?? 0);
-        setSearchError(null);
-        setSearchLoading(false);
-        setMatchedTerms(
-          Array.isArray(data.matchedTerms)
-            ? data.matchedTerms.filter((t: unknown): t is string => typeof t === "string")
-            : []
-        );
-
-        // Exact-generation guard: the user asked for e.g. "G11" but the
-        // catalog only carries other generations → auto-discover via Gemini
-        // (once per query) instead of showing wrong generations.
-        const missing: string[] | undefined = data.generationMissing;
-        const q = debouncedQuery.trim();
-        if (missing?.length && q && !autoAiAttemptedRef.current.has(q.toLowerCase())) {
-          autoAiAttemptedRef.current.add(q.toLowerCase());
-          void runAiSearchRef.current?.(q);
-        }
-      })
-      .catch((e) => {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        if (reqId !== searchRequestIdRef.current) return;
-        // Keep previous results visible; surface a retryable banner.
-        setSearchError(
-          e instanceof Error ? e.message : "Search failed. Please try again."
-        );
-        setSearchLoading(false);
-      });
-  }, [debouncedQuery, category, visibleCount, isSearchMode, retryNonce]);
+    if (!isSearchMode) searchAbortRef.current?.abort();
+  }, [isSearchMode]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: allModels.length };
@@ -323,16 +275,20 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
     } finally {
       setExpanding(false);
     }
-  }, [expanding, debouncedQuery, searchResults, visibleCount, expandedModels, browsed]);
+  }, [expanding, debouncedQuery, searchResults, visibleCount, expandedModels]);
 
   /**
    * AI Computer Search — SSE streaming core. Parameterized so both the manual
    * button and the automatic missing-generation trigger can use it.
+   * An effect event: always sees the latest state, never needs to appear in
+   * effect dependency arrays, and never retriggers effects.
    */
+  const aiSearchingRef = useRef(false);
   const runAiSearch = useCallback(
     async (query: string) => {
-      if (!query || aiSearching) return;
+      if (!query || aiSearchingRef.current) return;
 
+      aiSearchingRef.current = true;
       setAiSearching(true);
       setAiError(null);
       setAiQueried(query);
@@ -418,23 +374,89 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
           e instanceof Error ? e.message : "AI Search failed. Please try again."
         );
       } finally {
+        aiSearchingRef.current = false;
         setAiSearching(false);
         setAiProgress("");
       }
     },
-    [aiSearching]
+    []
   );
 
-  // Bridge for the search effect: lets it fire an auto AI discovery without
-  // being listed as an effect dependency (avoids re-fetch loops).
-  const runAiSearchRef = useRef<((q: string) => Promise<void>) | null>(null);
+  // Server search: relevance-ranked against the ENTIRE database.
+  // Declared after runAiSearch (effect event) so the auto-discovery call
+  // below never reads a binding before its declaration.
   useEffect(() => {
-    runAiSearchRef.current = runAiSearch;
-  }, [runAiSearch]);
+    if (!isSearchMode) return;
+
+    // AI Search just applied its own results — don't overwrite them.
+    if (skipSearchFetchRef.current) {
+      skipSearchFetchRef.current = false;
+      return;
+    }
+    setAiNotice(null);
+
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const reqId = ++searchRequestIdRef.current;
+
+    setSearchLoading(true);
+    const params = new URLSearchParams({
+      q: debouncedQuery,
+      limit: String(visibleCount),
+    });
+    if (category !== "all") params.set("category", category);
+
+    fetch(`/api/search?${params.toString()}`, { signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) {
+          let message = "Search is unavailable right now. Please try again.";
+          try {
+            const err = await r.json();
+            if (typeof err?.error?.message === "string") message = err.error.message;
+          } catch {
+            // keep default
+          }
+          throw new Error(message);
+        }
+        return r.json();
+      })
+      .then((data) => {
+        if (reqId !== searchRequestIdRef.current || controller.signal.aborted) return;
+        setSearchResults(data.models || []);
+        setSearchTotal(data.total ?? 0);
+        setSearchError(null);
+        setSearchLoading(false);
+        setMatchedTerms(
+          Array.isArray(data.matchedTerms)
+            ? data.matchedTerms.filter((t: unknown): t is string => typeof t === "string")
+            : []
+        );
+
+        // Exact-generation guard: the user asked for e.g. "G11" but the
+        // catalog only carries other generations → auto-discover via Gemini
+        // (once per query) instead of showing wrong generations.
+        const missing: string[] | undefined = data.generationMissing;
+        const q = debouncedQuery.trim();
+        if (missing?.length && q && !autoAiAttemptedRef.current.has(q.toLowerCase())) {
+          autoAiAttemptedRef.current.add(q.toLowerCase());
+          void runAiSearch(q);
+        }
+      })
+      .catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (reqId !== searchRequestIdRef.current) return;
+        // Keep previous results visible; surface a retryable banner.
+        setSearchError(
+          e instanceof Error ? e.message : "Search failed. Please try again."
+        );
+        setSearchLoading(false);
+      });
+  }, [debouncedQuery, category, visibleCount, isSearchMode, retryNonce, runAiSearch]);
 
   const handleAiSearch = useCallback(() => {
     void runAiSearch(search.trim());
-  }, [runAiSearch, search]);
+  }, [search, runAiSearch]);
 
   const loading = initialLoading || (isSearchMode && searchLoading && !searchResults);
   const pageError = !isSearchMode ? loadError : null;
@@ -562,7 +584,7 @@ export function HomePageClient({ initialModels }: { initialModels: ComputerModel
               <p className="text-sm text-gen-fg">
                 {aiProgress || (
                   <>
-                    Researching <strong>"{aiQueried}"</strong> — gathering specs and configurations…
+                    Researching <strong>&quot;{aiQueried}&quot;</strong> — gathering specs and configurations…
                   </>
                 )}
               </p>

@@ -4,7 +4,6 @@ import { logError } from "./api-utils";
 import {
   modelSignature,
   modelNameKey,
-  normKey,
   normGeneration,
 } from "./model-normalize";
 

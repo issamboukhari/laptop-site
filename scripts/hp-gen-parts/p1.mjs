@@ -1,7 +1,4 @@
 // HP EliteBook generator - part 1: CPU presets + helpers
-import { writeFileSync, appendFileSync } from "node:fs";
-
-const q = s => `"${s}"`;
 
 export const C = {
   i5_8250U:{cpu:"Intel Core i5-8250U",cores:"4C/8T",cs:58,gpu:"Intel UHD Graphics 620",gs:14},

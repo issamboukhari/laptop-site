@@ -1,5 +1,5 @@
 // L-series expansion — older models and extra configs.
-import { base, P, V } from "./thinkpad-data-common.mjs";
+import { P, V } from "./thinkpad-data-common.mjs";
 
 export const L_SERIES_EXPAND = [
   { id: "lenovo-thinkpad-l450", name: "ThinkPad L450", year: 2015, base: P.lOld, desc: "14-inch budget business laptop with Broadwell Intel.",

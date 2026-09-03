@@ -2,7 +2,7 @@
 
 import { ComputerVariant } from "@/lib/data/types";
 import { Card } from "@/components/ui/Card";
-import { formatRam, formatStorage } from "@/lib/utils/format";
+import { formatStorage } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 import { Cpu, HardDrive, Monitor, Battery, Wifi, Shield, Camera, Keyboard, Box } from "lucide-react";
 

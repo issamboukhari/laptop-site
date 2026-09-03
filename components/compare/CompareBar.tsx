@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useCompareSelection } from "@/hooks/use-compare-selection";
 import {
@@ -19,8 +19,13 @@ interface SlotState {
 }
 
 export function CompareBar() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // Client-only gate: the selection store reads localStorage, which does
+  // not exist during SSR. Stable false on server + first client render.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   const { selectedIds, remove, clear } = useCompareSelection();
   const remote = useRemoteComputers(selectedIds);
 
@@ -165,8 +170,11 @@ export function CompareBar() {
 }
 
 export function CompareBarSpacer({ className }: { className?: string }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   const { selectedIds } = useCompareSelection();
 
   if (!mounted || selectedIds.length === 0) return null;

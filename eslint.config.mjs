@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated native shell (Capacitor sync output + Gradle intermediates):
+    // never authored source, mostly gitignored, thousands of minified files.
+    "android/**",
   ]),
 ]);
 

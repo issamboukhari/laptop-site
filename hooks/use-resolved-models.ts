@@ -54,7 +54,9 @@ export function useResolvedModels(ids: string[]): ComputerModel[] {
   const key = ids.join("|");
 
   useEffect(() => {
-    for (const id of ids) {
+    // Derive the id list from the joined key so the effect depends only on
+    // `key` (model ids never contain "|").
+    for (const id of key.split("|")) {
       if (!id) continue;
       if (findModelById(id)) continue;
       if (cache.has(id)) continue;

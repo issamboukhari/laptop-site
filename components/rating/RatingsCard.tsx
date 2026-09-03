@@ -2,7 +2,7 @@
 
 import { ComputerVariant } from "@/lib/data/types";
 import { calculateRatings, RATING_DEFINITIONS } from "@/lib/scoring/ratings";
-import { getScoreColor, getScoreBg } from "@/lib/utils/format";
+import { getScoreColor } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
 function ScoreBar({ score }: { score: number }) {

@@ -40,16 +40,24 @@ export function AddComputerPicker({
   const [staleQuery, setStaleQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset + focus each time the dialog opens.
-  useEffect(() => {
+  // Reset each time the dialog opens (guarded render-phase adjustment —
+  // `open` only flips client-side, so SSR output is unaffected).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setQuery("");
       setModels([]);
       setError(null);
       setExpandedId(null);
-      const t = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(t);
     }
+  }
+
+  // Focus the input when the dialog opens (no state written here).
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
   }, [open]);
 
   // Close on Escape.

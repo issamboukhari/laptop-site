@@ -552,11 +552,6 @@ function tokenFieldScore(token: string, field: string): number {
   return 0;
 }
 
-interface TokenMatch {
-  score: number;
-  fuzzy: boolean;
-}
-
 /** Best score for one query token against one indexed model (non-fuzzy). */
 function matchToken(tok: string, m: IndexedModel): number {
   let best = 0;
@@ -1158,12 +1153,12 @@ export async function getAutocomplete(rawQuery: string): Promise<AutocompleteRes
   const families = [...familyEntries.values()]
     .sort((a, b) => b.score - a.score || b.count - a.count)
     .slice(0, 6)
-    .map(({ score: _, ...rest }) => rest);
+    .map(({ text, brand, count }) => ({ text, brand, count }));
 
   const models = modelSuggestions
     .sort((a, b) => b.score - a.score || b.tier - a.tier)
     .slice(0, 8)
-    .map(({ score: _score, tier: _tier, ...rest }) => rest);
+    .map(({ text, id, brand, family }) => ({ text, id, brand, family }));
 
   // Never-empty guarantee: if nothing surfaced, fall back to the strongest
   // fuzzy/partial interpretations instead of returning zero rows.

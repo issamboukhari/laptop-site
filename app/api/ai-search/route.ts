@@ -6,7 +6,6 @@ import {
   ApiError,
   assertContentLength,
   errorResponse,
-  logError,
   parseJsonBody,
   requireString,
   withTimeout,

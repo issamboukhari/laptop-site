@@ -74,7 +74,6 @@ console.log("data block:", dataBlock.length, "chars");
 
 // Now rebuild index.html
 // Find the boundaries: from after ACCENTS line to before "function resolveImageUrl"
-const accentsEnd = html.indexOf("\n", html.indexOf("const ACCENTS="));
 const resolveUrl = html.indexOf("function resolveImageUrl");
 
 // The JS rest (from resolveImageUrl to end of script) - keep as-is

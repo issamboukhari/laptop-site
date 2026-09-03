@@ -1,5 +1,5 @@
 // A-series dataset (AMD-powered ThinkPads).
-import { base, P, V } from "./thinkpad-data-common.mjs";
+import { base, V } from "./thinkpad-data-common.mjs";
 
 export const A_SERIES = [
   { id: "lenovo-thinkpad-a475", name: "ThinkPad A475", year: 2017, base: base({ wifi: "Wi-Fi 5 (802.11ac)", bluetooth: "Bluetooth 4.1", buildMaterial: "Glass-fiber plastic + magnesium", militaryCertification: "MIL-STD-810G", coolingSystem: "Single fan", fans: "Single fan" }), desc: "14-inch AMD PRO A12 business laptop — the first AMD ThinkPad in years.",
