@@ -2,10 +2,11 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "app.gen.discovery",
-  appName: "gen",
+  appName: "Gen laptop",
   webDir: "out",
   server: {
-    androidScheme: "https",
+    url: "https://gen-laptop-liart.vercel.app/",
+    cleartext: true,
   },
   android: {
     allowMixedContent: false,
