@@ -11,5 +11,6 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     globals: false,
     reporters: ["verbose"],
+    testTimeout: 30000, // 30s default — benchmarks may take longer
   },
 });

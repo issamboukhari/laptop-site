@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "benchmark": "vitest run tests/benchmark"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

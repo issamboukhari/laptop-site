@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import {
   getAllModels,
   invalidateCache,
-  getModelById,
 } from "@/lib/server/database";
 import {
   searchModels,
