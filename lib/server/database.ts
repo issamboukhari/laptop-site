@@ -59,6 +59,8 @@ let _indexSnapshot: ComputerModel[] | null = null;
 let _modelById: Map<string, ComputerModel> | null = null;
 let _variantById: Map<string, VariantIndexEntry> | null = null;
 let _modelByVariantId: Map<string, ComputerModel> | null = null;
+let _modelsByCategory: Map<string, ComputerModel[]> | null = null;
+let _modelsByBrand: Map<string, ComputerModel[]> | null = null;
 
 function ensureIndexes(models: ComputerModel[]): void {
   // Same snapshot reference → indexes are current
@@ -67,9 +69,20 @@ function ensureIndexes(models: ComputerModel[]): void {
   const byId = new Map<string, ComputerModel>();
   const vById = new Map<string, VariantIndexEntry>();
   const mByVId = new Map<string, ComputerModel>();
+  const byCategory = new Map<string, ComputerModel[]>();
+  const byBrand = new Map<string, ComputerModel[]>();
 
   for (const m of models) {
     byId.set(m.id, m);
+
+    const catModels = byCategory.get(m.category);
+    if (catModels) catModels.push(m);
+    else byCategory.set(m.category, [m]);
+
+    const brandModels = byBrand.get(m.brand);
+    if (brandModels) brandModels.push(m);
+    else byBrand.set(m.brand, [m]);
+
     for (const v of m.variants) {
       mByVId.set(v.id, m);
       const base = MODEL_BASE_SPECS[m.id] ?? {};
@@ -81,6 +94,8 @@ function ensureIndexes(models: ComputerModel[]): void {
   _modelById = byId;
   _variantById = vById;
   _modelByVariantId = mByVId;
+  _modelsByCategory = byCategory;
+  _modelsByBrand = byBrand;
   _indexSnapshot = models;
 }
 
@@ -104,6 +119,8 @@ export function invalidateCache(): void {
   _modelById = null;
   _variantById = null;
   _modelByVariantId = null;
+  _modelsByCategory = null;
+  _modelsByBrand = null;
   invalidateCloudCache();
 }
 
@@ -132,7 +149,30 @@ export async function queryModels(
   limit = 20
 ): Promise<{ models: ComputerModel[]; total: number; matchingVariants?: Record<string, string[]> }> {
   const all = await getAllModels();
-  const filtered = all.filter((m) => matchFilters(m, filters));
+  ensureIndexes(all);
+
+  // Use category/brand indexes as candidate pools when those filters are
+  // present, then apply full matchFilters() for all remaining filter types.
+  let pool: ComputerModel[];
+  const hasCategory = !!filters.category;
+  const hasBrand = !!filters.brand;
+
+  if (hasCategory && hasBrand) {
+    const catPool = _modelsByCategory!.get(filters.category!) ?? [];
+    const brandPool = _modelsByBrand!.get(filters.brand!) ?? [];
+    // Use the smaller pool, then filter by the other dimension
+    pool = catPool.length <= brandPool.length
+      ? catPool.filter((m) => m.brand === filters.brand)
+      : brandPool.filter((m) => m.category === filters.category);
+  } else if (hasCategory) {
+    pool = _modelsByCategory!.get(filters.category!) ?? [];
+  } else if (hasBrand) {
+    pool = _modelsByBrand!.get(filters.brand!) ?? [];
+  } else {
+    pool = all;
+  }
+
+  const filtered = pool.filter((m) => matchFilters(m, filters));
   const sliced = filtered.slice(offset, offset + limit);
 
   // Build a map of model ID → matching variant IDs for the sliced results.
