@@ -414,6 +414,23 @@ interface IndexedModel {
 
 let _indexKey: ComputerModel[] | null = null;
 let _index: IndexedModel[] = [];
+let _buildPromise: Promise<IndexedModel[]> | null = null;
+
+/**
+ * Explicitly invalidate the search index.  Call this when the catalog is
+ * known to have changed (e.g. after database.invalidateCache()) so the next
+ * search triggers a fresh build instead of serving stale results.
+ *
+ * This is optional — getIndex() will detect a new catalog snapshot via
+ * reference equality even without calling this.  However, calling this
+ * immediately frees the old index memory and guarantees no stale lookups
+ * can slip through during the rebuild window.
+ */
+export function invalidateSearchIndex(): void {
+  _indexKey = null;
+  _index = [];
+  _buildPromise = null;
+}
 
 function buildIndex(models: ComputerModel[]): IndexedModel[] {
   return models.map((m) => {
@@ -497,11 +514,39 @@ function buildIndex(models: ComputerModel[]): IndexedModel[] {
 
 async function getIndex(): Promise<IndexedModel[]> {
   const models = await getAllModels();
-  if (_indexKey !== models) {
-    _index = buildIndex(models);
-    _indexKey = models;
+  if (_indexKey === models) return _index;
+
+  // If a build is already in flight for any snapshot, wait for it then
+  // re-check — the snapshot may have changed again while we waited.
+  if (_buildPromise) {
+    await _buildPromise;
+    if (_indexKey === models) return _index;
   }
-  return _index;
+
+  // Store the promise BEFORE starting work so concurrent callers see it
+  // and wait instead of spawning a duplicate build.
+  let resolve!: (value: IndexedModel[]) => void;
+  let reject!: (reason?: unknown) => void;
+  _buildPromise = new Promise<IndexedModel[]>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  queueMicrotask(async () => {
+    try {
+      const idx = buildIndex(models);
+      _index = idx;
+      _indexKey = models;
+      resolve(idx);
+    } catch (e) {
+      // On failure: _indexKey is NOT set, so next call will retry.
+      reject(e);
+    } finally {
+      _buildPromise = null;
+    }
+  });
+
+  return _buildPromise;
 }
 
 // ---------------------------------------------------------------------------
