@@ -10,9 +10,27 @@ import {
   getAllModels,
   queryModels,
 } from "@/lib/server/database";
-import { ComputerModel, ComputerCategory } from "@/lib/data/types";
+import { ComputerModel, ComputerCategory, ComputerVariant, ComputerSpecs } from "@/lib/data/types";
 
 function makeModel(id: string, category: ComputerCategory, brand: string): ComputerModel {
+  const specs = {
+    cpu: "Intel Core i7-13700H",
+    cpuScore: 25000,
+    gpu: "NVIDIA GeForce RTX 4060",
+    gpuScore: 20000,
+    ram: 16,
+    storage: 512,
+    storageType: "NVMe",
+    display: '15.6" FHD IPS',
+    displaySize: 15.6,
+    displayRefreshRate: 144,
+    touchscreen: false,
+    os: "Windows 11 Home",
+    weight: 2.0,
+    batteryLife: 8,
+    ports: [],
+  } satisfies Partial<ComputerSpecs> as ComputerSpecs;
+
   return {
     id,
     name: `Model ${id}`,
@@ -21,24 +39,21 @@ function makeModel(id: string, category: ComputerCategory, brand: string): Compu
     family: `Family ${id}`,
     year: 2024,
     imageUrl: "",
+    description: `Synthetic model ${id}`,
     variants: [
       {
         id: `${id}-v1`,
         name: `${id} Base`,
         price: 999,
-        specs: {
-          cpu: "Intel Core i7-13700H",
-          cpuGen: 13,
-          ram: 16,
-          storage: 512,
-          gpu: "NVIDIA GeForce RTX 4060",
-          displaySize: 15.6,
-          displayRefreshRate: 144,
-          touchscreen: false,
-          os: "Windows 11 Home",
-          weight: 2.0,
-        },
-      },
+        specs,
+        brand,
+        category,
+        imageUrl: "",
+        rating: 4.0,
+        reviewCount: 100,
+        year: 2024,
+        description: `Synthetic variant ${id}`,
+      } as ComputerVariant,
     ],
   };
 }
