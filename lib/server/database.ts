@@ -42,6 +42,48 @@ async function loadCustomModels(): Promise<ComputerModel[]> {
 const MERGED_TTL_MS = 5000;
 let _cache: { models: ComputerModel[]; at: number } | null = null;
 
+// ---------------------------------------------------------------------------
+// Single-item indexes — built lazily from the merged catalog snapshot.
+// Tied to _cache by reference: when _cache changes, indexes are stale and
+// rebuilt on next access.  This avoids rebuilding on every lookup while
+// guaranteeing indexes always correspond to the current catalog.
+// ---------------------------------------------------------------------------
+
+interface VariantIndexEntry {
+  model: ComputerModel;
+  variant: ComputerVariant;
+  enriched: ComputerVariant;
+}
+
+let _indexSnapshot: ComputerModel[] | null = null;
+let _modelById: Map<string, ComputerModel> | null = null;
+let _variantById: Map<string, VariantIndexEntry> | null = null;
+let _modelByVariantId: Map<string, ComputerModel> | null = null;
+
+function ensureIndexes(models: ComputerModel[]): void {
+  // Same snapshot reference → indexes are current
+  if (_indexSnapshot === models && _modelById) return;
+
+  const byId = new Map<string, ComputerModel>();
+  const vById = new Map<string, VariantIndexEntry>();
+  const mByVId = new Map<string, ComputerModel>();
+
+  for (const m of models) {
+    byId.set(m.id, m);
+    for (const v of m.variants) {
+      mByVId.set(v.id, m);
+      const base = MODEL_BASE_SPECS[m.id] ?? {};
+      const enriched = { ...v, specs: enrichSpecs({ ...base, ...v.specs }) };
+      vById.set(v.id, { model: m, variant: v, enriched });
+    }
+  }
+
+  _modelById = byId;
+  _variantById = vById;
+  _modelByVariantId = mByVId;
+  _indexSnapshot = models;
+}
+
 export async function getAllModels(): Promise<ComputerModel[]> {
   if (_cache && Date.now() - _cache.at < MERGED_TTL_MS) return _cache.models;
 
@@ -58,29 +100,30 @@ export async function getAllModels(): Promise<ComputerModel[]> {
 
 export function invalidateCache(): void {
   _cache = null;
+  _indexSnapshot = null;
+  _modelById = null;
+  _variantById = null;
+  _modelByVariantId = null;
   invalidateCloudCache();
 }
 
 export async function getModelById(id: string): Promise<ComputerModel | undefined> {
   const all = await getAllModels();
-  return all.find((m) => m.id === id);
+  ensureIndexes(all);
+  return _modelById!.get(id);
 }
 
 export async function findVariantById(id: string): Promise<ComputerVariant | undefined> {
   const all = await getAllModels();
-  for (const m of all) {
-    const v = m.variants.find((v) => v.id === id);
-    if (v) {
-      const base = MODEL_BASE_SPECS[m.id] ?? {};
-      return { ...v, specs: enrichSpecs({ ...base, ...v.specs }) };
-    }
-  }
-  return undefined;
+  ensureIndexes(all);
+  const entry = _variantById!.get(id);
+  return entry?.enriched;
 }
 
 export async function findModelByVariantId(variantId: string): Promise<ComputerModel | undefined> {
   const all = await getAllModels();
-  return all.find((m) => m.variants.some((v) => v.id === variantId));
+  ensureIndexes(all);
+  return _modelByVariantId!.get(variantId);
 }
 
 export async function queryModels(
