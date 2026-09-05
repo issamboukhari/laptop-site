@@ -11,6 +11,8 @@ import {
   queryModels,
 } from "./database";
 import { modelMatchesFilters } from "./variant-matcher";
+import { understandQuery } from "./query-understanding";
+import { understoodQueryToFilters } from "./query-to-filters";
 
 // ---------------------------------------------------------------------------
 // Query normalization
@@ -969,8 +971,19 @@ export async function searchModels(
     return { models, total, offset, limit, query: normalized, facets };
   }
 
+  // ---- Phase 3.2.1: Query Understanding integration ----
+  // Parse the query into structured signals. understandQuery() never throws
+  // (returns low-confidence fallback on failure) so this is safe.
+  const understood = understandQuery(query);
+  const understoodFilters = understoodQueryToFilters(understood);
+
+  // Merge: explicit URL params take precedence over query-understood filters.
+  // This ensures the API contract is preserved — if a caller passes
+  // ?minRam=32 it overrides the "16GB" extracted from the query text.
+  const mergedFilters: SearchFilters = { ...understoodFilters, ...filters };
+
   const { ranked, missingGeneration, matchedTerms } = await smartSearch(normalized);
-  const filtered = ranked.filter((s) => matchFiltersPost(s.entry.model, filters));
+  const filtered = ranked.filter((s) => matchFiltersPost(s.entry.model, mergedFilters));
   const total = filtered.length;
   const models = filtered.slice(offset, offset + limit).map((s) => s.entry.model);
 
