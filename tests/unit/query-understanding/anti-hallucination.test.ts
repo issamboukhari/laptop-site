@@ -133,6 +133,9 @@ describe("Anti-hallucination — IntelligentQuery is pure metadata", () => {
       "gpuTerms",
       "brand",
       "category",
+      "ramConstraint",
+      "storageConstraint",
+      "priceConstraint",
     ];
     for (const key of Object.keys(parsed.hardRequirements)) {
       expect(allowedKeys).toContain(key);
