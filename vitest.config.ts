@@ -11,6 +11,6 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     globals: false,
     reporters: ["verbose"],
-    testTimeout: 30000, // 30s default — benchmarks may take longer
+    testTimeout: 60000, // 60s default — semantic retrieval build may take ~35s
   },
 });

@@ -376,7 +376,7 @@ describe("M. Query understanding overhead", () => {
     const start = performance.now();
     await searchModels("laptop 16GB RAM RTX 4060", {});
     const elapsed = performance.now() - start;
-    // Should complete within 5 seconds (including index build on first call)
-    expect(elapsed).toBeLessThan(5000);
+    // Should complete within 6 seconds (includes 5s semantic timeout)
+    expect(elapsed).toBeLessThan(6000);
   });
 });

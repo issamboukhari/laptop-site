@@ -14,6 +14,7 @@ import { modelMatchesFilters } from "./variant-matcher";
 import { understandQuery } from "./query-understanding";
 import { understoodQueryToFilters } from "./query-to-filters";
 import { retrieveCandidates, invalidateRetrievalIndexes } from "./candidate-retrieval";
+import { semanticRetrieval, invalidateSemanticIndex } from "./semantic-retrieval";
 
 // ---------------------------------------------------------------------------
 // Query normalization
@@ -434,6 +435,7 @@ export function invalidateSearchIndex(): void {
   _index = [];
   _buildPromise = null;
   invalidateRetrievalIndexes();
+  invalidateSemanticIndex();
 }
 
 function buildIndex(models: ComputerModel[]): IndexedModel[] {
@@ -1000,6 +1002,28 @@ export async function searchModels(
   const allModels = await getAllModels();
   const { candidates } = retrieveCandidates(understood, allModels, mergedFilters);
   const candidateIds = new Set(candidates.map((m) => m.id));
+
+  // ---- Phase 3.2.3: Semantic Retrieval ----
+  // Use embedding-based semantic similarity as an ADDITIONAL candidate source.
+  // Semantic retrieval runs in parallel and merges results if available.
+  // If it fails or times out, we silently fall back to structured candidates only.
+  // The vector store builds lazily on first call (~30s for 537 variants);
+  // subsequent calls use the cached store (~60ms).
+  try {
+    const semanticPromise = semanticRetrieval(query, allModels);
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), 1000)
+    );
+    const semanticResult = await Promise.race([semanticPromise, timeoutPromise]);
+    if (semanticResult && semanticResult.success && semanticResult.matches.length > 0) {
+      // Merge semantic model IDs with structured candidate IDs.
+      for (const match of semanticResult.matches) {
+        candidateIds.add(match.modelId);
+      }
+    }
+  } catch {
+    // Semantic retrieval failed — proceed with structured candidates only
+  }
 
   const { ranked, missingGeneration, matchedTerms } = await smartSearch(normalized, candidateIds);
   const filtered = ranked.filter((s) => matchFiltersPost(s.entry.model, mergedFilters));

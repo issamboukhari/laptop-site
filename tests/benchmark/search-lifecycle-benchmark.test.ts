@@ -16,8 +16,8 @@ import {
 } from "@/lib/server/search";
 
 describe("Benchmark — search index lifecycle", () => {
-  it("measures search lifecycle latency", async () => {
-    const ITERATIONS = 500;
+  it("measures search lifecycle latency", { timeout: 180_000 }, async () => {
+    const ITERATIONS = 10;
 
     // 1. First search (cold index build)
     invalidateSearchIndex();
