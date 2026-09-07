@@ -13,6 +13,7 @@ import {
 import { modelMatchesFilters } from "./variant-matcher";
 import { understandQuery } from "./query-understanding";
 import { understoodQueryToFilters } from "./query-to-filters";
+import { retrieveCandidates, invalidateRetrievalIndexes } from "./candidate-retrieval";
 
 // ---------------------------------------------------------------------------
 // Query normalization
@@ -432,6 +433,7 @@ export function invalidateSearchIndex(): void {
   _indexKey = null;
   _index = [];
   _buildPromise = null;
+  invalidateRetrievalIndexes();
 }
 
 function buildIndex(models: ComputerModel[]): IndexedModel[] {
@@ -748,7 +750,8 @@ function despaceMatches(index: IndexedModel[], despacedQuery: string): Map<strin
  *   Tier 5: closest single-token matches (never-empty guarantee)
  */
 async function smartSearch(
-  rawQuery: string
+  rawQuery: string,
+  candidateIds?: Set<string>
 ): Promise<{
   ranked: RankedMatch[];
   relaxed: boolean;
@@ -762,6 +765,14 @@ async function smartSearch(
 
   const index = await getIndex();
 
+  // Phase 3.2.2: If candidate IDs are provided, filter the index to only
+  // include models in the candidate set. This reduces the O(N) scoring pass
+  // to O(K) where K = candidate count. If no candidates are provided or the
+  // set is empty, use the full index (backward-compatible).
+  const effectiveIndex = candidateIds && candidateIds.size > 0
+    ? index.filter((m) => candidateIds.has(m.id))
+    : index;
+
   // ---- Multi-criteria hardware detection ---------------------------------
   // Criteria tokens are enforced as hard spec filters and REMOVED from the
   // fuzzy ranking pipeline so "16gb"/"rtx" don't dilute name matching.
@@ -774,7 +785,7 @@ async function smartSearch(
   const despacedQuery = normalized.replace(/\s+/g, "");
 
   // One scoring pass over the corpus (free tokens only).
-  const corpus = scoreCorpus(index, freeTokens);
+  const corpus = scoreCorpus(effectiveIndex, freeTokens);
   let scored = corpus.scored;
   const tokenHasDirect = corpus.tokenHasDirect;
 
@@ -854,7 +865,7 @@ async function smartSearch(
 
   // Tier 2 — de-spaced query ("hpspectre", "thinkpadt14", "hp elitebook845").
   {
-    const boosts = despaceMatches(index, despacedQuery);
+    const boosts = despaceMatches(effectiveIndex, despacedQuery);
     if (boosts.size > 0) {
       const hits = scored
         .filter((s) => boosts.has(s.entry.id))
@@ -982,7 +993,15 @@ export async function searchModels(
   // ?minRam=32 it overrides the "16GB" extracted from the query text.
   const mergedFilters: SearchFilters = { ...understoodFilters, ...filters };
 
-  const { ranked, missingGeneration, matchedTerms } = await smartSearch(normalized);
+  // ---- Phase 3.2.2: Structured Candidate Retrieval ----
+  // Use Query Understanding output to narrow the candidate set BEFORE
+  // final verification and ranking. This is recall-safe: when signals are
+  // missing or ambiguous, we fall back to the full catalog.
+  const allModels = await getAllModels();
+  const { candidates } = retrieveCandidates(understood, allModels, mergedFilters);
+  const candidateIds = new Set(candidates.map((m) => m.id));
+
+  const { ranked, missingGeneration, matchedTerms } = await smartSearch(normalized, candidateIds);
   const filtered = ranked.filter((s) => matchFiltersPost(s.entry.model, mergedFilters));
   const total = filtered.length;
   const models = filtered.slice(offset, offset + limit).map((s) => s.entry.model);
