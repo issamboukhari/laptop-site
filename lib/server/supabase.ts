@@ -131,3 +131,29 @@ export async function sbUpsert(
     headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
   });
 }
+
+/**
+ * Call a Supabase RPC (PostgREST function).
+ * Returns the function result as a typed array.
+ */
+export async function sbRpc<T>(
+  functionName: string,
+  params: Record<string, unknown>
+): Promise<T[]> {
+  const res = await request("POST", `rpc/${functionName}`, {
+    body: params,
+  });
+  return (await res.json()) as T[];
+}
+
+/**
+ * Delete rows from a table by filter.
+ */
+export async function sbDelete(
+  table: string,
+  filters: Record<string, string>
+): Promise<void> {
+  const query: Record<string, string> = {};
+  Object.assign(query, filters);
+  await request("DELETE", table, { query });
+}

@@ -85,9 +85,8 @@ describe("Performance — Query Understanding overhead", () => {
 
     console.log(`searchModels average: ${perSearch.toFixed(1)}ms/search`);
 
-    // understandQuery adds ~0.01ms; per-search includes semantic timeout (~1s per call)
-    // Threshold accounts for semantic retrieval overhead
-    expect(perSearch).toBeLessThan(2000);
+    // understandQuery adds ~0.01ms; per-search now uses DB-backed semantic (no timeout)
+    expect(perSearch).toBeLessThan(3000);
   });
 
   it("fallback works when query understanding fails", async () => {

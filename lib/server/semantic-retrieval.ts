@@ -1,9 +1,10 @@
 /**
- * Phase 3.2.3 — Semantic Retrieval
+ * Phase 3.2.3 FIX — Persistent Semantic Retrieval
  *
- * Adds vector-embedding-based semantic retrieval over the EXISTING real
- * computer catalog. Uses Gemini's text-embedding-004 model via the
- * existing @google/genai SDK.
+ * Vector-embedding-based semantic retrieval over the EXISTING real
+ * computer catalog. Uses gemini-embedding-2 (768-dim MRL) via the
+ * existing @google/genai SDK. Embeddings are persisted in Supabase
+ * pgvector — not rebuilt on every server start.
  *
  * TRUST INVARIANT: This module NEVER creates, invents, or modifies
  * computer data. It only identifies which existing catalog records
@@ -13,39 +14,62 @@
  * Embedding level: Variant-level (each variant gets its own embedding
  * to preserve variant integrity — no invalid cross-variant combinations).
  *
- * Storage: In-memory, invalidated alongside the search index when the
- * catalog snapshot changes.
+ * Storage: Persistent (Supabase pgvector). Invalidated per-entity via
+ * content hashes — not rebuilt wholesale on catalog changes.
  */
 
 import { ComputerModel, ComputerVariant } from "../data/types";
 import { GoogleGenAI } from "@google/genai";
 import { getGeminiApiKey } from "./gemini";
+import { isSupabaseConfigured, sbSelect, sbUpsert, sbRpc, sbDelete } from "./supabase";
 
 // ---------------------------------------------------------------------------
-// Constants
+// Centralized Configuration
 // ---------------------------------------------------------------------------
 
-/** Embedding model — must be the same for catalog and queries. */
-const EMBEDDING_MODEL = "text-embedding-004";
+export const SEMANTIC_CONFIG = {
+  /** Embedding model — must be the same for catalog and queries. */
+  embeddingModel: "gemini-embedding-2" as const,
 
-/** Vector dimension for text-embedding-004 (default output). */
-const EMBEDDING_DIMENSION = 768;
+  /** Vector dimension — MRL output, recommended by Google. */
+  embeddingDimension: 768 as const,
 
-/** Maximum number of semantic candidates to retrieve per query. */
-export const SEMANTIC_TOP_K = 50;
+  /** Embedding version — bump to force re-embedding of all entities. */
+  embeddingVersion: "1" as const,
 
-/** Minimum cosine similarity threshold for semantic matches. */
-const MIN_SIMILARITY = 0.3;
+  /** Minimum cosine similarity threshold for semantic matches. */
+  minSimilarity: 0.3,
 
-/** Maximum text length per semantic document (chars). Embedding models
- *  have input limits; we keep documents concise. */
-const MAX_DOC_LENGTH = 1000;
+  /** Maximum number of semantic candidates to retrieve per query. */
+  topK: 50,
 
-/** Batch size for embedding API calls (Gemini supports batch). */
-const EMBED_BATCH_SIZE = 20;
+  /** Maximum text length per semantic document (chars). */
+  maxDocLength: 1000,
 
-/** In-memory cache TTL — same pattern as database.ts */
-const CACHE_TTL_MS = 30_000;
+  /** Batch size for embedding API calls. */
+  embedBatchSize: 20,
+
+  /** Maximum concurrent embedding API calls. */
+  embedConcurrency: 5,
+
+  /** Retry attempts for transient embedding failures. */
+  maxRetries: 3,
+
+  /** Base delay for exponential backoff (ms). */
+  retryBaseDelayMs: 500,
+
+  /** Timeout for individual embedding API calls (ms). */
+  embedTimeoutMs: 15_000,
+
+  /** Timeout for vector DB retrieval (ms). */
+  searchTimeoutMs: 5_000,
+} as const;
+
+/** Legacy constant exports for backward compatibility. */
+export const EMBEDDING_MODEL = SEMANTIC_CONFIG.embeddingModel;
+export const EMBEDDING_DIMENSION = SEMANTIC_CONFIG.embeddingDimension;
+export const SEMANTIC_TOP_K = SEMANTIC_CONFIG.topK;
+export const MIN_SIMILARITY = SEMANTIC_CONFIG.minSimilarity;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,73 +77,50 @@ const CACHE_TTL_MS = 30_000;
 
 /** A single semantic document for embedding. */
 interface SemanticDocument {
-  /** Unique entity ID — variant-level: variant.id */
   entityId: string;
-  /** Parent model ID */
   modelId: string;
-  /** The text content that was embedded */
   content: string;
-  /** Content hash for staleness detection */
   contentHash: string;
 }
 
-/** A cached embedding record. */
-interface EmbeddingRecord {
-  entityId: string;
-  modelId: string;
-  embedding: number[];
-  contentHash: string;
-  embeddingModel: string;
-  createdAt: number;
+/** A persistent embedding record (stored in Supabase). */
+interface EmbeddingRow {
+  id: number;
+  entity_type: string;
+  entity_id: string;
+  model_id: string;
+  content_hash: string;
+  embedding: string; // pgvector serializes as string
+  embedding_model: string;
+  embedding_dimension: number;
+  embedding_version: string;
+  created_at: string;
+  updated_at: string;
 }
 
 /** Semantic retrieval result for a single entity. */
 export interface SemanticMatch {
-  /** Variant ID (the embedded entity) */
   variantId: string;
-  /** Parent model ID */
   modelId: string;
-  /** Cosine similarity score (0-1) */
   score: number;
-  /** Rank position (1-based) */
   rank: number;
 }
 
 /** Full semantic retrieval result. */
 export interface SemanticResult {
-  /** Matched models (deduplicated by modelId, ordered by best score) */
   matches: SemanticMatch[];
-  /** Whether embedding generation succeeded */
   success: boolean;
-  /** Whether fallback to non-semantic search is needed */
   fallback: boolean;
-  /** Number of catalog documents embedded */
   embeddedCount: number;
-  /** Latency in ms */
   latencyMs: number;
-  /** Error message if fallback triggered */
   error?: string;
 }
 
-// ---------------------------------------------------------------------------
-// In-memory vector store
-// ---------------------------------------------------------------------------
-
-interface VectorStore {
-  snapshot: ComputerModel[];
-  records: EmbeddingRecord[];
-  documents: SemanticDocument[];
-  buildTime: number;
-}
-
-let _storeKey: ComputerModel[] | null = null;
-let _store: VectorStore | null = null;
-let _buildPromise: Promise<VectorStore> | null = null;
-
-function invalidateVectorStore(): void {
-  _storeKey = null;
-  _store = null;
-  _buildPromise = null;
+/** RPC match result from Supabase. */
+interface RpcMatch {
+  variant_id: string;
+  model_id: string;
+  similarity: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,13 +129,7 @@ function invalidateVectorStore(): void {
 
 /**
  * Generate a semantic document for a single variant.
- *
  * Uses ONLY real catalog fields. Unknown fields are omitted (never fabricated).
- * The document describes the variant's actual specifications in a structured
- * format suitable for embedding.
- *
- * This is variant-level (not model-level) to preserve correctness:
- * each embedding represents a real, purchasable configuration.
  */
 function variantToSemanticDocument(
   model: ComputerModel,
@@ -149,25 +144,21 @@ function variantToSemanticDocument(
   parts.push(`Category: ${model.category.replace(/-/g, " ")}`);
   parts.push(`Year: ${model.year}`);
 
-  // Core specs — only include non-default values
+  // Core specs
   const specs = variant.specs;
 
-  // CPU
   if (specs.cpu) parts.push(`CPU: ${specs.cpu}`);
   if (specs.cpuCores) parts.push(`CPU Cores: ${specs.cpuCores}`);
 
-  // GPU
   if (specs.gpu && specs.gpu !== "Integrated") {
     parts.push(`GPU: ${specs.gpu}`);
   } else if (specs.gpu === "Integrated") {
     parts.push(`GPU: Integrated graphics`);
   }
 
-  // Memory
   if (specs.ram > 0) parts.push(`RAM: ${specs.ram} GB`);
   if (specs.ramType) parts.push(`RAM Type: ${specs.ramType}`);
 
-  // Storage
   if (specs.storage > 0) {
     const storageStr = specs.storage >= 1024
       ? `${(specs.storage / 1024).toFixed(specs.storage % 1024 === 0 ? 0 : 1)} TB`
@@ -175,7 +166,6 @@ function variantToSemanticDocument(
     parts.push(`Storage: ${storageStr} ${specs.storageType}`);
   }
 
-  // Display
   if (specs.displaySize > 0) parts.push(`Display: ${specs.displaySize} inch`);
   if (specs.resolution) parts.push(`Resolution: ${specs.resolution}`);
   if (specs.displayRefreshRate > 0 && specs.displayRefreshRate !== 60) {
@@ -184,33 +174,27 @@ function variantToSemanticDocument(
   if (specs.panelType) parts.push(`Panel: ${specs.panelType}`);
   if (specs.touchscreen) parts.push(`Touchscreen: yes`);
 
-  // Portability
   if (specs.weight > 0) parts.push(`Weight: ${specs.weight} kg`);
   if (specs.batteryLife > 0) parts.push(`Battery: ${specs.batteryLife} hours`);
 
-  // Build quality
   if (specs.buildMaterial) parts.push(`Build: ${specs.buildMaterial}`);
   if (specs.militaryCertification) parts.push(`Certification: ${specs.militaryCertification}`);
 
-  // Keyboard
   if (specs.backlitKeyboard) parts.push(`Backlit keyboard: yes`);
   if (specs.rgbKeyboard) parts.push(`RGB keyboard: yes`);
 
-  // Security
   if (specs.fingerprint) parts.push(`Fingerprint reader: yes`);
   if (specs.faceRecognition) parts.push(`Face recognition: yes`);
   if (specs.tpm) parts.push(`TPM: ${specs.tpm}`);
 
-  // OS
   if (specs.os) parts.push(`OS: ${specs.os}`);
 
-  // Connectivity
   if (specs.wifi) parts.push(`WiFi: ${specs.wifi}`);
   if (specs.bluetooth) parts.push(`Bluetooth: ${specs.bluetooth}`);
   if (specs.ethernet) parts.push(`Ethernet: yes`);
   if (specs.thunderbolt) parts.push(`Thunderbolt: ${specs.thunderbolt}`);
 
-  // Price hint (useful for semantic context, but not a hard filter)
+  // Price tier (useful for semantic context)
   if (variant.price > 0) {
     if (variant.price < 500) parts.push(`Budget laptop`);
     else if (variant.price < 1000) parts.push(`Mid-range laptop`);
@@ -218,7 +202,7 @@ function variantToSemanticDocument(
     else parts.push(`High-end laptop`);
   }
 
-  // Description (if available and short enough)
+  // Description (only short, non-marketing text)
   if (variant.description && variant.description.length < 200) {
     parts.push(variant.description);
   }
@@ -228,18 +212,18 @@ function variantToSemanticDocument(
 
 /**
  * Generate semantic documents for all variants in the catalog.
- * Each variant gets its own document (variant-level embeddings).
  */
 function generateSemanticDocuments(
   models: ComputerModel[]
 ): SemanticDocument[] {
   const docs: SemanticDocument[] = [];
+  const maxLen = SEMANTIC_CONFIG.maxDocLength;
 
   for (const model of models) {
     for (const variant of model.variants) {
       const content = variantToSemanticDocument(model, variant);
-      const truncated = content.length > MAX_DOC_LENGTH
-        ? content.slice(0, MAX_DOC_LENGTH)
+      const truncated = content.length > maxLen
+        ? content.slice(0, maxLen)
         : content;
 
       docs.push({
@@ -254,7 +238,7 @@ function generateSemanticDocuments(
   return docs;
 }
 
-/** Simple string hash for staleness detection (not cryptographic). */
+/** Deterministic content hash for staleness detection. */
 function simpleHash(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -268,70 +252,306 @@ function simpleHash(str: string): string {
 // Embedding generation via Gemini
 // ---------------------------------------------------------------------------
 
+let _genaiClient: GoogleGenAI | null = null;
+
+function getGenAIClient(): GoogleGenAI | null {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return null;
+  if (!_genaiClient) {
+    _genaiClient = new GoogleGenAI({ apiKey });
+  }
+  return _genaiClient;
+}
+
 /**
- * Generate embeddings for a batch of texts using Gemini's text-embedding-004.
- * Returns an array of embedding vectors, one per input text.
- *
- * On any failure, returns null (caller should fallback to non-semantic search).
+ * Generate an embedding for a single text with retry logic.
+ */
+async function embedSingle(
+  text: string,
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY"
+): Promise<number[] | null> {
+  const client = getGenAIClient();
+  if (!client) return null;
+
+  const dim = SEMANTIC_CONFIG.embeddingDimension;
+  const maxRetries = SEMANTIC_CONFIG.maxRetries;
+  const baseDelay = SEMANTIC_CONFIG.retryBaseDelayMs;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await Promise.race([
+        client.models.embedContent({
+          model: SEMANTIC_CONFIG.embeddingModel,
+          contents: text,
+          config: {
+            taskType,
+            outputDimensionality: dim,
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Embedding timeout")), SEMANTIC_CONFIG.embedTimeoutMs)
+        ),
+      ]);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = result as Record<string, any>;
+      const values = r?.embedding?.values ?? r?.embeddings?.[0]?.values;
+      if (values && values.length === dim) {
+        return values;
+      }
+      // Wrong dimension — return null (will be skipped)
+      return null;
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries;
+      if (isLastAttempt) return null;
+
+      // Only retry on transient errors (timeout, network, 503)
+      const errStr = error instanceof Error ? error.message : String(error);
+      const isRetryable = errStr.includes("timeout") ||
+        errStr.includes("ECONNRESET") ||
+        errStr.includes("503") ||
+        errStr.includes("429") ||
+        errStr.includes("overloaded");
+      if (!isRetryable) return null;
+
+      await new Promise((r) => setTimeout(r, baseDelay * Math.pow(2, attempt)));
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Generate embeddings for a batch of texts with controlled concurrency.
  */
 async function generateEmbeddings(
   texts: string[],
   taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY"
-): Promise<number[][] | null> {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) return null;
+): Promise<(number[] | null)[]> {
+  const results: (number[] | null)[] = new Array(texts.length).fill(null);
+  const concurrency = SEMANTIC_CONFIG.embedConcurrency;
+  const batchSize = SEMANTIC_CONFIG.embedBatchSize;
+
+  // Process in batches for progress tracking
+  for (let i = 0; i < texts.length; i += batchSize * concurrency) {
+    const chunkPromises: Promise<void>[] = [];
+
+    for (let j = i; j < Math.min(i + batchSize * concurrency, texts.length); j += batchSize) {
+      const batchStart = j;
+      const batchEnd = Math.min(j + batchSize, texts.length);
+
+      const promise = (async () => {
+        for (let k = batchStart; k < batchEnd; k++) {
+          results[k] = await embedSingle(texts[k], taskType);
+        }
+      })();
+
+      chunkPromises.push(promise);
+    }
+
+    await Promise.all(chunkPromises);
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Persistent storage (Supabase)
+// ---------------------------------------------------------------------------
+
+const EMBEDDING_TABLE = "semantic_embeddings";
+
+/** Row shape for upserting embeddings. */
+interface EmbeddingUpsertRow {
+  entity_type: string;
+  entity_id: string;
+  model_id: string;
+  content_hash: string;
+  embedding: string; // pgvector format: '[0.1,0.2,...]'
+  embedding_model: string;
+  embedding_dimension: number;
+  embedding_version: string;
+}
+
+/** Convert number[] to pgvector string format. */
+function toPgVector(values: number[]): string {
+  return `[${values.map((v) => v.toFixed(8)).join(",")}]`;
+}
+
+/**
+ * Fetch existing embeddings for given entity IDs.
+ */
+async function fetchExistingEmbeddings(
+  entityIds: string[]
+): Promise<Map<string, EmbeddingRow>> {
+  if (!isSupabaseConfigured() || entityIds.length === 0) return new Map();
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const embeddings: number[][] = [];
+    const rows = await sbSelect<EmbeddingRow>(EMBEDDING_TABLE, {
+      columns: "entity_id,content_hash,embedding_model,embedding_version",
+      filters: { entity_type: "eq.variant" },
+      limit: 10000,
+    });
 
-    // Process in batches
-    for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
-      const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
+    const map = new Map<string, EmbeddingRow>();
+    const idSet = new Set(entityIds);
+    for (const row of rows) {
+      if (idSet.has(row.entity_id)) {
+        map.set(row.entity_id, row);
+      }
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
 
-      // Gemini embedContent supports single text; call per text for reliability
-      for (const text of batch) {
-        try {
-          const result = await ai.models.embedContent({
-            model: EMBEDDING_MODEL,
-            contents: text,
-            config: {
-              taskType,
-              outputDimensionality: EMBEDDING_DIMENSION,
-            },
-          });
+/**
+ * Upsert embeddings into Supabase.
+ */
+async function upsertEmbeddings(rows: EmbeddingUpsertRow[]): Promise<void> {
+  if (!isSupabaseConfigured() || rows.length === 0) return;
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const r = result as Record<string, any>;
-          const values = r?.embedding?.values ?? r?.embeddings?.[0]?.values;
-          if (values && values.length > 0) {
-            embeddings.push(values);
-          } else {
-            // Embedding returned but no values — skip this document
-            embeddings.push(new Array(EMBEDDING_DIMENSION).fill(0));
+  try {
+    await sbUpsert(EMBEDDING_TABLE, rows as unknown as Record<string, unknown>[], "entity_type,entity_id,embedding_model,embedding_version");
+  } catch {
+    // Non-fatal — search will fall back to non-semantic
+  }
+}
+
+/**
+ * Delete embeddings for entity IDs that no longer exist in the catalog.
+ */
+async function deleteStaleEmbeddings(validEntityIds: Set<string>): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  try {
+    const allRows = await sbSelect<{ entity_id: string }>(EMBEDDING_TABLE, {
+      columns: "entity_id",
+      filters: { entity_type: "eq.variant" },
+      limit: 10000,
+    });
+
+    const staleIds = allRows
+      .map((r) => r.entity_id)
+      .filter((id) => !validEntityIds.has(id));
+
+    if (staleIds.length > 0) {
+      // Delete in batches
+      for (let i = 0; i < staleIds.length; i += 50) {
+        const batch = staleIds.slice(i, i + 50);
+        for (const id of batch) {
+          try {
+            await sbDelete(EMBEDDING_TABLE, {
+              entity_type: "eq.variant",
+              entity_id: `eq.${id}`,
+            });
+          } catch {
+            // Best effort
           }
-        } catch {
-          // Individual text failed — use zero vector (will have low similarity)
-          embeddings.push(new Array(EMBEDDING_DIMENSION).fill(0));
         }
       }
     }
-
-    return embeddings;
   } catch {
-    // Global failure — return null to trigger fallback
-    return null;
+    // Non-fatal
   }
 }
 
 // ---------------------------------------------------------------------------
-// Cosine similarity
+// Incremental indexing
 // ---------------------------------------------------------------------------
 
+let _indexingInProgress = false;
+
 /**
- * Compute cosine similarity between two vectors.
- * Returns a value between -1 and 1 (typically 0 to 1 for normalized embeddings).
+ * Index or re-index semantic embeddings for the given catalog.
+ *
+ * - Skips variants whose content hash matches (unchanged).
+ * - Re-embeds variants with changed content.
+ * - Deletes embeddings for variants that no longer exist.
+ *
+ * This function is safely rerunnable — running it twice creates no duplicates.
+ *
+ * @param models — full catalog from getAllModels()
+ * @param force — if true, re-embed all variants regardless of hash
+ * @returns number of embeddings created or updated
  */
+export async function indexSemanticEmbeddings(
+  models: ComputerModel[],
+  force = false
+): Promise<number> {
+  if (_indexingInProgress) return 0;
+  _indexingInProgress = true;
+
+  try {
+    // 1. Generate semantic documents
+    const documents = generateSemanticDocuments(models);
+    if (documents.length === 0) return 0;
+
+    // 2. Build valid entity set for stale deletion
+    const validEntityIds = new Set(documents.map((d) => d.entityId));
+
+    // 3. Fetch existing embeddings to detect staleness
+    const entityIds = documents.map((d) => d.entityId);
+    const existing = await fetchExistingEmbeddings(entityIds);
+
+    // 4. Partition: skip unchanged, re-embed changed/new
+    const toEmbed: SemanticDocument[] = [];
+    let skippedCount = 0;
+
+    for (const doc of documents) {
+      const existingRow = existing.get(doc.entityId);
+      if (!force && existingRow && existingRow.content_hash === doc.contentHash) {
+        skippedCount++;
+        continue;
+      }
+      toEmbed.push(doc);
+    }
+
+    if (toEmbed.length === 0 && skippedCount > 0) {
+      // All embeddings are current — just clean up stale ones
+      await deleteStaleEmbeddings(validEntityIds);
+      return 0;
+    }
+
+    // 5. Generate embeddings for changed/new documents
+    const texts = toEmbed.map((d) => d.content);
+    const embeddings = await generateEmbeddings(texts, "RETRIEVAL_DOCUMENT");
+
+    // 6. Build upsert rows
+    const upsertRows: EmbeddingUpsertRow[] = [];
+    for (let i = 0; i < toEmbed.length; i++) {
+      const emb = embeddings[i];
+      if (!emb) continue; // Skip failed embeddings
+
+      upsertRows.push({
+        entity_type: "variant",
+        entity_id: toEmbed[i].entityId,
+        model_id: toEmbed[i].modelId,
+        content_hash: toEmbed[i].contentHash,
+        embedding: toPgVector(emb),
+        embedding_model: SEMANTIC_CONFIG.embeddingModel,
+        embedding_dimension: SEMANTIC_CONFIG.embeddingDimension,
+        embedding_version: SEMANTIC_CONFIG.embeddingVersion,
+      });
+    }
+
+    // 7. Upsert to Supabase
+    await upsertEmbeddings(upsertRows);
+
+    // 8. Clean up stale embeddings
+    await deleteStaleEmbeddings(validEntityIds);
+
+    return upsertRows.length;
+  } finally {
+    _indexingInProgress = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cosine similarity (exported for testing only — NOT used for production search)
+// ---------------------------------------------------------------------------
+
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
 
@@ -352,105 +572,22 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// Vector store build
-// ---------------------------------------------------------------------------
-
-async function buildVectorStore(
-  models: ComputerModel[]
-): Promise<VectorStore> {
-  const start = performance.now();
-
-  // Generate semantic documents
-  const documents = generateSemanticDocuments(models);
-
-  if (documents.length === 0) {
-    return { snapshot: models, records: [], documents: [], buildTime: 0 };
-  }
-
-  // Generate embeddings for all documents
-  const texts = documents.map((d) => d.content);
-  const embeddings = await generateEmbeddings(texts, "RETRIEVAL_DOCUMENT");
-
-  if (!embeddings || embeddings.length !== documents.length) {
-    // Embedding generation failed — return empty store (triggers fallback)
-    return { snapshot: models, records: [], documents: [], buildTime: 0 };
-  }
-
-  // Build records
-  const records: EmbeddingRecord[] = [];
-  for (let i = 0; i < documents.length; i++) {
-    records.push({
-      entityId: documents[i].entityId,
-      modelId: documents[i].modelId,
-      embedding: embeddings[i],
-      contentHash: documents[i].contentHash,
-      embeddingModel: EMBEDDING_MODEL,
-      createdAt: Date.now(),
-    });
-  }
-
-  const buildTime = performance.now() - start;
-
-  return { snapshot: models, records, documents, buildTime };
-}
-
-async function getVectorStore(
-  models: ComputerModel[]
-): Promise<VectorStore> {
-  // Check if current snapshot matches
-  if (_storeKey === models && _store) return _store;
-
-  // If build is in flight, wait for it
-  if (_buildPromise) {
-    await _buildPromise;
-    if (_storeKey === models && _store) return _store;
-  }
-
-  // Start new build
-  let resolve!: (value: VectorStore) => void;
-  let reject!: (reason?: unknown) => void;
-  _buildPromise = new Promise<VectorStore>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-
-  queueMicrotask(async () => {
-    try {
-      const store = await buildVectorStore(models);
-      _store = store;
-      _storeKey = models;
-      resolve(store);
-    } catch (e) {
-      reject(e);
-    } finally {
-      _buildPromise = null;
-    }
-  });
-
-  return _buildPromise;
-}
-
-// ---------------------------------------------------------------------------
-// Main retrieval function
+// Main retrieval function (database-backed)
 // ---------------------------------------------------------------------------
 
 /**
  * Semantic retrieval: find catalog variants semantically similar to a query.
  *
- * Uses the SAME embedding model for catalog and query embeddings.
- * Returns variant IDs mapped to their parent model IDs, with similarity scores.
+ * Architecture:
+ *   query text → query embedding → Supabase RPC (pgvector ANN) → canonical variant IDs
  *
+ * The database performs the vector search, not JavaScript.
  * This function NEVER throws — it returns a fallback result on any failure.
- *
- * @param query — raw user query text
- * @param allModels — full catalog (from getAllModels())
- * @param topK — maximum number of results (default SEMANTIC_TOP_K)
- * @returns SemanticResult with matches, or fallback indicator
  */
 export async function semanticRetrieval(
   query: string,
-  allModels: ComputerModel[],
-  topK: number = SEMANTIC_TOP_K
+  _allModels: ComputerModel[],
+  topK: number = SEMANTIC_CONFIG.topK
 ): Promise<SemanticResult> {
   const start = performance.now();
 
@@ -465,81 +602,93 @@ export async function semanticRetrieval(
     };
   }
 
-  // Get or build vector store
-  const store = await getVectorStore(allModels);
-
-  // If store is empty (build failed or no documents), fallback
-  if (store.records.length === 0) {
+  // Check Supabase availability
+  if (!isSupabaseConfigured()) {
     return {
       matches: [],
       success: false,
       fallback: true,
       embeddedCount: 0,
       latencyMs: performance.now() - start,
-      error: "No embeddings available",
+      error: "Supabase not configured",
     };
   }
 
-  // Generate query embedding
-  const queryEmbeddings = await generateEmbeddings(
-    [query],
-    "RETRIEVAL_QUERY"
-  );
-
-  if (!queryEmbeddings || queryEmbeddings.length === 0 || !queryEmbeddings[0]) {
+  // Check Gemini API key
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
     return {
       matches: [],
       success: false,
       fallback: true,
-      embeddedCount: store.records.length,
+      embeddedCount: 0,
+      latencyMs: performance.now() - start,
+      error: "Gemini API key not available",
+    };
+  }
+
+  // 1. Generate query embedding
+  const queryEmb = await embedSingle(query, "RETRIEVAL_QUERY");
+  if (!queryEmb) {
+    return {
+      matches: [],
+      success: false,
+      fallback: true,
+      embeddedCount: 0,
       latencyMs: performance.now() - start,
       error: "Query embedding failed",
     };
   }
 
-  const queryEmbedding = queryEmbeddings[0];
+  // 2. Search via Supabase RPC (pgvector ANN)
+  try {
+    const rpcResult = await Promise.race([
+      sbRpc<RpcMatch>("match_semantic_variants", {
+        query_embedding: toPgVector(queryEmb),
+        match_count: topK,
+        similarity_threshold: SEMANTIC_CONFIG.minSimilarity,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Vector search timeout")), SEMANTIC_CONFIG.searchTimeoutMs)
+      ),
+    ]);
 
-  // Compute similarities
-  const scored: { record: EmbeddingRecord; score: number }[] = [];
-  for (const record of store.records) {
-    const score = cosineSimilarity(queryEmbedding, record.embedding);
-    if (score >= MIN_SIMILARITY) {
-      scored.push({ record, score });
+    const matches: SemanticMatch[] = rpcResult.map((row, i) => ({
+      variantId: row.variant_id,
+      modelId: row.model_id,
+      score: row.similarity,
+      rank: i + 1,
+    }));
+
+    // Count total embedded records (for observability)
+    let embeddedCount = 0;
+    try {
+      const countResult = await sbSelect<{ count: string }>(EMBEDDING_TABLE, {
+        columns: "count",
+        limit: 1,
+      });
+      embeddedCount = parseInt(countResult[0]?.count ?? "0", 10);
+    } catch {
+      // Non-fatal
     }
+
+    return {
+      matches,
+      success: true,
+      fallback: false,
+      embeddedCount,
+      latencyMs: performance.now() - start,
+    };
+  } catch (error) {
+    return {
+      matches: [],
+      success: false,
+      fallback: true,
+      embeddedCount: 0,
+      latencyMs: performance.now() - start,
+      error: error instanceof Error ? error.message : "Vector search failed",
+    };
   }
-
-  // Sort by score descending
-  scored.sort((a, b) => b.score - a.score);
-
-  // Take top K and deduplicate by modelId (keep best score per model)
-  const seenModels = new Set<string>();
-  const matches: SemanticMatch[] = [];
-  let rank = 0;
-
-  for (const { record, score } of scored) {
-    if (matches.length >= topK) break;
-
-    rank++;
-    matches.push({
-      variantId: record.entityId,
-      modelId: record.modelId,
-      score,
-      rank,
-    });
-
-    // Mark model as seen (for dedup tracking, but allow multiple variants)
-    seenModels.add(record.modelId);
-  }
-
-  const latencyMs = performance.now() - start;
-
-  return {
-    matches,
-    success: true,
-    fallback: false,
-    embeddedCount: store.records.length,
-    latencyMs,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,17 +696,19 @@ export async function semanticRetrieval(
 // ---------------------------------------------------------------------------
 
 /**
- * Invalidate the vector store. Call alongside search index invalidation.
+ * Invalidate semantic state. Called alongside search index invalidation.
+ * Since embeddings are persistent, this only clears any in-memory caches.
  */
 export function invalidateSemanticIndex(): void {
-  invalidateVectorStore();
+  // No in-memory vector store to invalidate — embeddings live in Supabase.
+  // This function exists for API compatibility with search.ts.
 }
 
 /**
- * Check if semantic retrieval is available (API key present).
+ * Check if semantic retrieval is available (both API key and Supabase configured).
  */
 export function isSemanticAvailable(): boolean {
-  return !!getGeminiApiKey();
+  return !!getGeminiApiKey() && isSupabaseConfigured();
 }
 
 /**
@@ -571,31 +722,44 @@ export function getSemanticStats(): {
 } {
   return {
     available: isSemanticAvailable(),
-    embeddedCount: _store?.records.length ?? 0,
-    model: EMBEDDING_MODEL,
-    dimension: EMBEDDING_DIMENSION,
+    embeddedCount: 0, // Count is fetched from DB on demand
+    model: SEMANTIC_CONFIG.embeddingModel,
+    dimension: SEMANTIC_CONFIG.embeddingDimension,
   };
 }
 
 /**
- * Get the vector store build time (for benchmarking).
+ * Get the last indexing duration (for benchmarking).
+ * Returns 0 — no in-memory build in persistent architecture.
  */
 export function getSemanticBuildTime(): number {
-  return _store?.buildTime ?? 0;
+  return 0;
 }
 
 /**
  * Check if a specific embedding is stale (content hash mismatch).
- * Useful for monitoring embedding freshness.
  */
-export function isEmbeddingStale(
+export async function isEmbeddingStale(
   variantId: string,
   currentContentHash: string
-): boolean {
-  if (!_store) return true;
-  const record = _store.records.find((r) => r.entityId === variantId);
-  if (!record) return true;
-  return record.contentHash !== currentContentHash;
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return true;
+
+  try {
+    const rows = await sbSelect<{ content_hash: string }>(EMBEDDING_TABLE, {
+      columns: "content_hash",
+      filters: {
+        entity_type: "eq.variant",
+        entity_id: `eq.${variantId}`,
+      },
+      limit: 1,
+    });
+
+    if (rows.length === 0) return true;
+    return rows[0].content_hash !== currentContentHash;
+  } catch {
+    return true;
+  }
 }
 
 /**

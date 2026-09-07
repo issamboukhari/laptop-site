@@ -6,14 +6,14 @@ import {
   cosineSimilarity,
   isSemanticAvailable,
   getSemanticStats,
-  getSemanticBuildTime,
+  indexSemanticEmbeddings,
 } from "@/lib/server/semantic-retrieval";
 
 /**
- * Phase 3.2.3 — Performance Benchmark
+ * Phase 3.2.3 FIX — Performance Benchmark
  *
- * Measures semantic retrieval performance: embedding generation,
- * retrieval latency, and comparison with existing search.
+ * Measures persistent semantic retrieval performance: cosine similarity,
+ * query embedding latency, vector DB retrieval latency, and end-to-end search.
  */
 
 let allModels: Awaited<ReturnType<typeof getAllModels>>;
@@ -21,9 +21,7 @@ let allModels: Awaited<ReturnType<typeof getAllModels>>;
 beforeAll(async () => {
   allModels = await getAllModels();
   invalidateSemanticIndex();
-  // Pre-build vector store to avoid timeout in individual tests
-  await semanticRetrieval("laptop", allModels);
-}, 60_000);
+});
 
 describe("Semantic Retrieval — Cosine Similarity Performance", () => {
   it("cosine similarity is fast for 768-dim vectors", () => {
@@ -36,35 +34,63 @@ describe("Semantic Retrieval — Cosine Similarity Performance", () => {
       cosineSimilarity(a, b);
     }
     const elapsed = performance.now() - start;
-    const perCall = (elapsed / iterations) * 1000; // microseconds
+    const perCall = (elapsed / iterations) * 1000;
 
     console.log(`cosineSimilarity (768-dim): ${perCall.toFixed(2)}μs/call`);
 
-    // Should be very fast
-    expect(perCall).toBeLessThan(100); // < 100μs
+    expect(perCall).toBeLessThan(100);
   });
 });
 
-describe("Semantic Retrieval — Availability", () => {
-  it("reports availability and stats", () => {
-    const available = isSemanticAvailable();
+describe("Semantic Retrieval — Configuration", () => {
+  it("uses gemini-embedding-2 with 768 dimensions", () => {
     const stats = getSemanticStats();
 
-    console.log(`Available: ${available}`);
     console.log(`Model: ${stats.model}`);
     console.log(`Dimension: ${stats.dimension}`);
-    console.log(`Embedded count: ${stats.embeddedCount}`);
+    console.log(`Available: ${stats.available}`);
 
-    expect(stats.model).toBe("text-embedding-004");
+    expect(stats.model).toBe("gemini-embedding-2");
     expect(stats.dimension).toBe(768);
   });
 });
 
-describe("Semantic Retrieval — Latency", () => {
-  it("semantic retrieval completes in < 2 seconds (warm)", async () => {
+describe("Semantic Retrieval — Indexing", () => {
+  it("indexSemanticEmbeddings is safely rerunnable", async () => {
     const available = isSemanticAvailable();
     if (!available) {
-      console.log("Skipping — no Gemini API key");
+      console.log("Skipping — Gemini API key or Supabase not configured");
+      return;
+    }
+
+    // First run — should index all variants
+    const count1 = await indexSemanticEmbeddings(allModels);
+    console.log(`First indexing: ${count1} embeddings created/updated`);
+
+    // Second run — should skip unchanged (incremental)
+    const count2 = await indexSemanticEmbeddings(allModels);
+    console.log(`Second indexing (incremental): ${count2} embeddings updated`);
+
+    expect(count2).toBeLessThanOrEqual(count1);
+  });
+
+  it("force=true re-embeds all variants", async () => {
+    const available = isSemanticAvailable();
+    if (!available) return;
+
+    const count = await indexSemanticEmbeddings(allModels, true);
+    console.log(`Force re-indexing: ${count} embeddings updated`);
+
+    // Force should re-embed everything
+    expect(count).toBeGreaterThan(0);
+  });
+});
+
+describe("Semantic Retrieval — Latency", () => {
+  it("semantic retrieval completes in < 5 seconds (database-backed)", async () => {
+    const available = isSemanticAvailable();
+    if (!available) {
+      console.log("Skipping — Gemini API key or Supabase not configured");
       return;
     }
 
@@ -83,20 +109,10 @@ describe("Semantic Retrieval — Latency", () => {
     const elapsed = performance.now() - start;
     const perQuery = elapsed / queries.length;
 
-    console.log(`Semantic retrieval (warm): ${perQuery.toFixed(0)}ms/query`);
+    console.log(`Semantic retrieval (DB-backed): ${perQuery.toFixed(0)}ms/query`);
 
-    // Warm calls should be fast (vector store cached)
-    expect(perQuery).toBeLessThan(2000);
-  });
-
-  it("vector store build time is reported", async () => {
-    const available = isSemanticAvailable();
-    if (!available) return;
-
-    const buildTime = getSemanticBuildTime();
-    console.log(`Vector store build time: ${buildTime.toFixed(0)}ms`);
-
-    expect(buildTime).toBeGreaterThanOrEqual(0);
+    // DB-backed retrieval should be fast (query embedding + RPC)
+    expect(perQuery).toBeLessThan(5000);
   });
 });
 
@@ -109,13 +125,12 @@ describe("Semantic Retrieval — Reduction Ratios", () => {
 
     if (result.success && result.matches.length > 0) {
       const uniqueModels = new Set(result.matches.map((m) => m.modelId));
-      const reduction = ((allModels.length - uniqueModels.size) / allModels.length) * 10;
+      const reduction = ((allModels.length - uniqueModels.size) / allModels.length) * 100;
 
       console.log(
         `Semantic candidates: ${uniqueModels.size}/${allModels.length} models (${reduction.toFixed(1)}% reduction)`
       );
 
-      // Should return a subset
       expect(uniqueModels.size).toBeLessThanOrEqual(allModels.length);
     }
   });
@@ -143,14 +158,12 @@ describe("Semantic Retrieval — End-to-End with Existing Search", () => {
 
     console.log(`searchModels (with semantic): ${perQuery.toFixed(0)}ms/query`);
 
-    // Each search has a 5s semantic timeout, so max ~5s per query
     expect(perQuery).toBeLessThan(10000);
   });
 
   it("searchModels fallback works without API key", async () => {
     const { searchModels } = await import("@/lib/server/search");
 
-    // Search should work regardless of semantic availability
     const result = await searchModels("laptop", {});
 
     expect(result).toBeDefined();

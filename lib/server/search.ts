@@ -1005,18 +1005,12 @@ export async function searchModels(
 
   // ---- Phase 3.2.3: Semantic Retrieval ----
   // Use embedding-based semantic similarity as an ADDITIONAL candidate source.
-  // Semantic retrieval runs in parallel and merges results if available.
-  // If it fails or times out, we silently fall back to structured candidates only.
-  // The vector store builds lazily on first call (~30s for 537 variants);
-  // subsequent calls use the cached store (~60ms).
+  // Semantic retrieval is now database-backed (Supabase pgvector):
+  //   query → query embedding → Supabase RPC → canonical variant IDs
+  // No in-memory vector store build on search. Falls back silently on any failure.
   try {
-    const semanticPromise = semanticRetrieval(query, allModels);
-    const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), 1000)
-    );
-    const semanticResult = await Promise.race([semanticPromise, timeoutPromise]);
-    if (semanticResult && semanticResult.success && semanticResult.matches.length > 0) {
-      // Merge semantic model IDs with structured candidate IDs.
+    const semanticResult = await semanticRetrieval(query, allModels);
+    if (semanticResult.success && semanticResult.matches.length > 0) {
       for (const match of semanticResult.matches) {
         candidateIds.add(match.modelId);
       }
