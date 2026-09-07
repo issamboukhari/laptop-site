@@ -265,10 +265,14 @@ function getGenAIClient(): GoogleGenAI | null {
 
 /**
  * Generate an embedding for a single text with retry logic.
+ *
+ * NOTE: `taskType` is NOT sent to the Gemini API — gemini-embedding-2 does
+ * not support the legacy task_type parameter. The query/document semantic
+ * distinction is maintained in application logic only.
  */
 async function embedSingle(
   text: string,
-  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY"
+  _purpose: "document" | "query" = "document"
 ): Promise<number[] | null> {
   const client = getGenAIClient();
   if (!client) return null;
@@ -284,7 +288,6 @@ async function embedSingle(
           model: SEMANTIC_CONFIG.embeddingModel,
           contents: text,
           config: {
-            taskType,
             outputDimensionality: dim,
           },
         }),
@@ -295,17 +298,22 @@ async function embedSingle(
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = result as Record<string, any>;
-      const values = r?.embedding?.values ?? r?.embeddings?.[0]?.values;
-      if (values && values.length === dim) {
-        return values;
+      const values: number[] | undefined = r?.embedding?.values ?? r?.embeddings?.[0]?.values;
+
+      // Runtime dimension validation — reject mismatched embeddings
+      if (!values || values.length !== dim) {
+        console.error(
+          `[semantic] Embedding dimension mismatch: expected ${dim}, got ${values?.length ?? 0}`
+        );
+        return null;
       }
-      // Wrong dimension — return null (will be skipped)
-      return null;
+
+      return values;
     } catch (error) {
       const isLastAttempt = attempt === maxRetries;
       if (isLastAttempt) return null;
 
-      // Only retry on transient errors (timeout, network, 503)
+      // Only retry on transient errors (timeout, network, 503, 429)
       const errStr = error instanceof Error ? error.message : String(error);
       const isRetryable = errStr.includes("timeout") ||
         errStr.includes("ECONNRESET") ||
@@ -326,7 +334,7 @@ async function embedSingle(
  */
 async function generateEmbeddings(
   texts: string[],
-  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY"
+  purpose: "document" | "query" = "document"
 ): Promise<(number[] | null)[]> {
   const results: (number[] | null)[] = new Array(texts.length).fill(null);
   const concurrency = SEMANTIC_CONFIG.embedConcurrency;
@@ -342,7 +350,7 @@ async function generateEmbeddings(
 
       const promise = (async () => {
         for (let k = batchStart; k < batchEnd; k++) {
-          results[k] = await embedSingle(texts[k], taskType);
+          results[k] = await embedSingle(texts[k], purpose);
         }
       })();
 
@@ -380,6 +388,7 @@ function toPgVector(values: number[]): string {
 
 /**
  * Fetch existing embeddings for given entity IDs.
+ * Filters by IDs in the database query — does not load all embeddings.
  */
 async function fetchExistingEmbeddings(
   entityIds: string[]
@@ -387,19 +396,29 @@ async function fetchExistingEmbeddings(
   if (!isSupabaseConfigured() || entityIds.length === 0) return new Map();
 
   try {
-    const rows = await sbSelect<EmbeddingRow>(EMBEDDING_TABLE, {
-      columns: "entity_id,content_hash,embedding_model,embedding_version",
-      filters: { entity_type: "eq.variant" },
-      limit: 10000,
-    });
-
+    // PostgREST `in` filter: entity_id=in.(id1,id2,...)
+    // Process in batches to avoid URL length limits
     const map = new Map<string, EmbeddingRow>();
-    const idSet = new Set(entityIds);
-    for (const row of rows) {
-      if (idSet.has(row.entity_id)) {
+    const batchSize = 100;
+
+    for (let i = 0; i < entityIds.length; i += batchSize) {
+      const batch = entityIds.slice(i, i + batchSize);
+      const idList = batch.map((id) => `"${id}"`).join(",");
+
+      const rows = await sbSelect<EmbeddingRow>(EMBEDDING_TABLE, {
+        columns: "entity_id,content_hash,embedding_model,embedding_version",
+        filters: {
+          entity_type: "eq.variant",
+          entity_id: `in.(${idList})`,
+        },
+        limit: batchSize,
+      });
+
+      for (const row of rows) {
         map.set(row.entity_id, row);
       }
     }
+
     return map;
   } catch {
     return new Map();
@@ -421,11 +440,13 @@ async function upsertEmbeddings(rows: EmbeddingUpsertRow[]): Promise<void> {
 
 /**
  * Delete embeddings for entity IDs that no longer exist in the catalog.
+ * Only deletes entities not in the valid set — does not load all embeddings.
  */
 async function deleteStaleEmbeddings(validEntityIds: Set<string>): Promise<void> {
   if (!isSupabaseConfigured()) return;
 
   try {
+    // Fetch only entity_ids that are currently stored
     const allRows = await sbSelect<{ entity_id: string }>(EMBEDDING_TABLE, {
       columns: "entity_id",
       filters: { entity_type: "eq.variant" },
@@ -436,20 +457,17 @@ async function deleteStaleEmbeddings(validEntityIds: Set<string>): Promise<void>
       .map((r) => r.entity_id)
       .filter((id) => !validEntityIds.has(id));
 
-    if (staleIds.length > 0) {
-      // Delete in batches
-      for (let i = 0; i < staleIds.length; i += 50) {
-        const batch = staleIds.slice(i, i + 50);
-        for (const id of batch) {
-          try {
-            await sbDelete(EMBEDDING_TABLE, {
-              entity_type: "eq.variant",
-              entity_id: `eq.${id}`,
-            });
-          } catch {
-            // Best effort
-          }
-        }
+    if (staleIds.length === 0) return;
+
+    // Delete stale entries
+    for (const id of staleIds) {
+      try {
+        await sbDelete(EMBEDDING_TABLE, {
+          entity_type: "eq.variant",
+          entity_id: `eq.${id}`,
+        });
+      } catch {
+        // Best effort — individual deletion failure is non-fatal
       }
     }
   } catch {
@@ -516,7 +534,7 @@ export async function indexSemanticEmbeddings(
 
     // 5. Generate embeddings for changed/new documents
     const texts = toEmbed.map((d) => d.content);
-    const embeddings = await generateEmbeddings(texts, "RETRIEVAL_DOCUMENT");
+    const embeddings = await generateEmbeddings(texts, "document");
 
     // 6. Build upsert rows
     const upsertRows: EmbeddingUpsertRow[] = [];
@@ -628,7 +646,7 @@ export async function semanticRetrieval(
   }
 
   // 1. Generate query embedding
-  const queryEmb = await embedSingle(query, "RETRIEVAL_QUERY");
+  const queryEmb = await embedSingle(query, "query");
   if (!queryEmb) {
     return {
       matches: [],
