@@ -95,7 +95,7 @@ create trigger semantic_embeddings_touch
   for each row execute function public.touch_semantic_updated_at();
 
 -- 7. Row Level Security
--- Backend uses publishable key. Only backend writes; anon/authenticated can read.
+-- Backend uses service-role key (server-only). Public roles can ONLY read.
 alter table public.semantic_embeddings enable row level security;
 
 drop policy if exists "public can read embeddings" on public.semantic_embeddings;
@@ -104,21 +104,5 @@ create policy "public can read embeddings"
   to anon, authenticated
   using (true);
 
-drop policy if exists "backend can insert embeddings" on public.semantic_embeddings;
-create policy "backend can insert embeddings"
-  on public.semantic_embeddings for insert
-  to anon, authenticated
-  with check (true);
-
-drop policy if exists "backend can update embeddings" on public.semantic_embeddings;
-create policy "backend can update embeddings"
-  on public.semantic_embeddings for update
-  to anon, authenticated
-  using (true)
-  with check (true);
-
-drop policy if exists "backend can delete embeddings" on public.semantic_embeddings;
-create policy "backend can delete embeddings"
-  on public.semantic_embeddings for delete
-  to anon, authenticated
-  using (true);
+-- Write policies removed — only service-role key (backend) can mutate the semantic index.
+-- This enforces least privilege: public roles cannot INSERT/UPDATE/DELETE.
