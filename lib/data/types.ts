@@ -236,6 +236,91 @@ export interface FilterFacets {
   osOptions: { value: string; count: number }[];
 }
 
+/**
+ * Phase 3.2.6 — Typed failure classification for the search pipeline.
+ *
+ * Every degraded path the public search API can take is enumerated here so
+ * callers can reason about reliability declaratively instead of poking at
+ * nested error strings. A failure KINDS union is a discriminated union by
+ * string literal — guaranteed distinct from any catalog data.
+ *
+ * Semantic sources:
+ *   SEMANTIC_TIMEOUT       — the whole semantic call exceeded its pipeline budget
+ *   SEMANTIC_API_ERROR     — embedding provider / vector DB returned an error
+ *   SEMANTIC_UNAVAILABLE   — provider not configured/not usable (not a fault)
+ *   SEMANTIC_EMPTY         — provider worked but returned no matches (valid outcome)
+ *   SEMANTIC_INVALID_RESPONSE — provider answered but the shape was malformed
+ *   SEMANTIC_INVALID_EMBEDDING — embedding had an unexpected dimension/shape
+ */
+export type SemanticFailureKind =
+  | "SEMANTIC_TIMEOUT"
+  | "SEMANTIC_API_ERROR"
+  | "SEMANTIC_UNAVAILABLE"
+  | "SEMANTIC_EMPTY"
+  | "SEMANTIC_INVALID_RESPONSE"
+  | "SEMANTIC_INVALID_EMBEDDING";
+
+/** Non-semantic failures + the semantic failure kinds form the full union. */
+export type SearchFailureKind =
+  | SemanticFailureKind
+  | "STRUCTURED_EMPTY"
+  | "STRUCTURED_ERROR"
+  | "QUERY_UNDERSTANDING_FAILURE"
+  | "INVALID_CANDIDATE"
+  | "INTERNAL_SEARCH_ERROR";
+
+/**
+ * Phase 3.2.6 — Search reliability observability (optional on SearchResult).
+ *
+ * Added optionally so the public search contract stays backward compatible;
+ * consumers that don't care about reliability can ignore it. No full user
+ * queries, no provider secrets, and no raw error payloads ever appear here.
+ */
+export interface SearchReliability {
+  /** True when semantic retrieval is configured AND not circuit-open. */
+  semanticAvailable: boolean;
+  /** True when the semantic attempt produced verified matches. */
+  semanticSuccess: boolean;
+  /** True when semantic worked but correctly returned zero matches. */
+  semanticEmpty: boolean;
+  /** True when the semantic call was cut off by the pipeline deadline. */
+  semanticTimeout: boolean;
+  /** Classified semantic failure, when the semantic attempt failed. */
+  semanticFailureReason?: SemanticFailureKind;
+  /** Circuit-breaker state at the time the search ran. */
+  breakerState: "CLOSED" | "OPEN" | "HALF_OPEN" | "DISABLED";
+  /** Structured retrieval always succeeds in-process; reflects candidate count. */
+  structuredSuccess: boolean;
+  /** True when structured retrieval produced no candidates. */
+  structuredEmpty: boolean;
+  /** True when the result was served from a degraded (non-fused) path. */
+  fallbackUsed: boolean;
+  /** Human-level reason for the fallback, when one was used. */
+  fallbackReason?: SearchFailureKind | "CIRCUIT_OPEN" | "TIMEOUT";
+  /** True when the semantic response came from the bounded result cache. */
+  cacheHit: boolean;
+  /** True when the semantic response was NOT (fully) cache-served. */
+  cacheMiss: boolean;
+  /** Candidate funnel: entries fed in vs fused vs gated vs returned. */
+  candidateCounts: {
+    structured: number;
+    semantic: number;
+    fused: number;
+    final: number;
+    gateExcluded: number;
+  };
+  /** Number of model results actually returned by this search. */
+  resultCount: number;
+  /** End-to-end search latency in ms. */
+  latencyMs: number;
+  /** Embedding space identity — prevents cross-version mixing. */
+  embedding: {
+    model: string;
+    version: string;
+    dimension: number;
+  };
+}
+
 export interface SearchResult {
   models: ComputerModel[];
   total: number;
@@ -255,6 +340,12 @@ export interface SearchResult {
     * substrings on result cards so users see WHY each computer appeared.
     */
   matchedTerms?: string[];
+  /**
+   * Phase 3.2.6 — reliability observability. Present on AI/mixed search
+   * paths only; structured-only responses do not carry it (optional → fully
+   * backward compatible).
+   */
+  reliability?: SearchReliability;
 }
 
 export interface AutocompleteResult {

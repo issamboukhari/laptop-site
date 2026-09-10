@@ -4,6 +4,7 @@ import {
   FilterFacets,
   SearchResult,
   AutocompleteResult,
+  SearchReliability,
 } from "../data/types";
 import {
   getAllModels,
@@ -14,8 +15,17 @@ import { modelMatchesFilters } from "./variant-matcher";
 import { understandQuery } from "./query-understanding";
 import { understoodQueryToFilters } from "./query-to-filters";
 import { retrieveCandidates, invalidateRetrievalIndexes } from "./candidate-retrieval";
-import { semanticRetrieval, invalidateSemanticIndex } from "./semantic-retrieval";
+import {
+  semanticRetrieval,
+  invalidateSemanticIndex,
+  isSemanticAvailable,
+  SEMANTIC_CONFIG,
+  getSemanticSpaceMetadata,
+} from "./semantic-retrieval";
 import { runHybridRetrieval } from "./hybrid-retrieval";
+import { semanticCircuitBreaker } from "./circuit-breaker";
+import { withDeadline } from "./reliability";
+import type { SemanticResult } from "./semantic-retrieval";
 import {
   hasSpecCriteria,
   extractSpecCriteria,
@@ -814,6 +824,7 @@ export async function searchModels(
   // ---- Phase 3.2.1: Query Understanding integration ----
   // Parse the query into structured signals. understandQuery() never throws
   // (returns low-confidence fallback on failure) so this is safe.
+  const searchStart = performance.now();
   const understood = understandQuery(query);
   const understoodFilters = understoodQueryToFilters(understood);
 
@@ -822,16 +833,20 @@ export async function searchModels(
   // ?minRam=32 it overrides the "16GB" extracted from the query text.
   const mergedFilters: SearchFilters = { ...understoodFilters, ...filters };
 
-  // ---- Phase 3.2.4: Hybrid Retrieval / Fusion ----
-  // Structured (Phase 3.2.2) and semantic (Phase 3.2.3) retrieval execute
-  // concurrently. Their outputs are then fused by the hybrid layer:
-  //   candidate contract → RRF fusion → hard-constraint gate → resolution.
+  // ---- Phase 3.2.6: Hybrid Retrieval with reliability bounds ----
+  // Structured (Phase 3.2.2, in-process, never blocks on the network) and
+  // semantic (Phase 3.2.3, external provider + Supabase) retrieval run
+  // concurrently, but search WAITS ON SEMANTIC AT MOST `pipelineTimeoutMs`.
+  // If the semantic call exceeds the deadline the search degrades to the
+  // verified structured path while the orphaned promise settles harmlessly
+  // out-of-band (still reported to the circuit breaker). Structured results
+  // NEVER wait for semantic recovery — a dead provider cannot stall search.
   const allModels = await getAllModels();
 
   const structuredPromise = Promise.resolve().then(() =>
     retrieveCandidates(understood, allModels, mergedFilters)
   );
-  const semanticPromise = semanticRetrieval(query, allModels).catch(() => ({
+  const semanticPromise = semanticRetrieval(query, allModels).catch<SemanticResult>(() => ({
     matches: [],
     success: false,
     fallback: true,
@@ -840,17 +855,35 @@ export async function searchModels(
     error: "semantic retrieval unavailable",
   }));
 
-  const [structuredResult, semanticResult] = await Promise.all([
-    structuredPromise,
+  const { value: semanticResult, timedOut } = await withDeadline(
     semanticPromise,
-  ]);
+    SEMANTIC_CONFIG.pipelineTimeoutMs,
+    "semanticRetrieval"
+  );
+
+  // Typed upgrade of a deadline cut: the breaker records the timeout the
+  // moment the underlying call reports it; here we synthesize the observer
+  // contract immediately so nobody downstream waits again.
+  const resolvedSemanticResult: SemanticResult = timedOut
+    ? {
+        matches: [],
+        success: false,
+        fallback: true,
+        embeddedCount: 0,
+        latencyMs: SEMANTIC_CONFIG.pipelineTimeoutMs,
+        error: `semantic retrieval exceeded deadline (${SEMANTIC_CONFIG.pipelineTimeoutMs}ms)`,
+        failureKind: "SEMANTIC_TIMEOUT",
+      }
+    : (semanticResult as SemanticResult);
+
+  const structuredResult = await structuredPromise;
 
   const hybrid = runHybridRetrieval({
     query,
     normalizedQuery: normalized,
     understood,
     structuredModels: structuredResult.candidates,
-    semanticResult,
+    semanticResult: resolvedSemanticResult,
     allModels,
     filters: mergedFilters,
   });
@@ -867,6 +900,52 @@ export async function searchModels(
 
   const facets = await computeFacetsFromSubset(filtered.map((s) => s.entry.model));
 
+  // ---- Phase 3.2.6: reliability observability (optional on SearchResult) ----
+  const breakerState = semanticCircuitBreaker.currentState().state;
+  const semanticSuccess = resolvedSemanticResult.success;
+  const semanticTimeout = timedOut || resolvedSemanticResult.failureKind === "SEMANTIC_TIMEOUT";
+  const semanticEmpty =
+    resolvedSemanticResult.semanticEmpty ?? (semanticSuccess && resolvedSemanticResult.matches.length === 0);
+  const structuredEmpty = structuredResult.candidates.length === 0;
+  const embedding = getSemanticSpaceMetadata();
+
+  let fallbackUsed = !semanticSuccess || semanticTimeout;
+  let fallbackReason: SearchReliability["fallbackReason"];
+  if (semanticTimeout) fallbackReason = "TIMEOUT";
+  else if (resolvedSemanticResult.circuitOpen) fallbackReason = "CIRCUIT_OPEN";
+  else if (resolvedSemanticResult.failureKind) fallbackReason = resolvedSemanticResult.failureKind;
+  if (hybrid.semanticSuppressed) {
+    // Structured returned nothing and the query carries a hard requirement the
+    // gate cannot verify — semantic rescue was deliberately withheld (safe empty).
+    fallbackUsed = true;
+    fallbackReason = "STRUCTURED_EMPTY";
+  }
+
+  const reliability: SearchReliability = {
+    semanticAvailable: isSemanticAvailable() && breakerState !== "OPEN",
+    semanticSuccess,
+    semanticEmpty,
+    semanticTimeout,
+    semanticFailureReason: resolvedSemanticResult.failureKind,
+    breakerState,
+    structuredSuccess: true,
+    structuredEmpty,
+    fallbackUsed,
+    fallbackReason,
+    cacheHit: resolvedSemanticResult.cacheHit ?? false,
+    cacheMiss: resolvedSemanticResult.cacheMiss ?? true,
+    candidateCounts: {
+      structured: hybrid.observable.structuredCandidateCount,
+      semantic: hybrid.observable.semanticCandidateCount,
+      fused: hybrid.observable.mergedCandidateCount,
+      final: hybrid.observable.finalCandidateCount,
+      gateExcluded: hybrid.observable.gateExcludedCount,
+    },
+    resultCount: total,
+    latencyMs: performance.now() - searchStart,
+    embedding: { model: embedding.model, version: embedding.version, dimension: embedding.dimension },
+  };
+
   return {
     models,
     total,
@@ -876,6 +955,7 @@ export async function searchModels(
     facets,
     generationMissing: missingGeneration,
     matchedTerms,
+    reliability,
   };
 }
 

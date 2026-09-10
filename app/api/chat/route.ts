@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { findVariantById, getModelById } from "@/lib/server/database";
-import { ComputerVariant } from "@/lib/data/types";
-import { calculateRatings, RATING_DEFINITIONS } from "@/lib/scoring/ratings";
-import { describeHardware } from "@/lib/scoring/hardware";
+import {
+  resolveChatComputers,
+  formatComputer,
+  CHAT_SYSTEM_PROMPT,
+  buildUserPrompt,
+} from "@/lib/server/chat-grounding";
 import {
   ApiError,
   asStringArray,
@@ -15,64 +18,11 @@ import {
 } from "@/lib/server/api-utils";
 import { getGeminiApiKey, getGeminiModel, getFallbackModel, diagnoseGeminiError, classifyGeminiFailure, isGroundingBlocked, isPrimaryModelBlocked, blockGrounding, blockPrimaryModel } from "@/lib/server/gemini";
 
-/** Bilingual expert advisor — responds in the user's language (Arabic or English). */
-const SYSTEM_PROMPT = `You are gen — an expert computer advisor and hardware analyst. You chat naturally with users about computers.
-
-LANGUAGE (critical):
-- Detect the user's language from their question. Respond in the SAME language (Arabic ↔ English).
-- If the question is in Arabic, answer in natural Arabic. If English, answer in English. Mixed = match the dominant language.
-- Keep technical terms (CPU names, GPU names, RAM, NVMe, OLED, benchmark terms) in English even when answering in Arabic — e.g. "معالج Intel Core Ultra 7 155H من فئة H-class".
-
-ACCURACY:
-- Use ONLY specs and ratings from the context. NEVER invent numbers, benchmarks, or scores. Unknown = "Not available" / "غير متوفر".
-- Trust the provided "Ratings/100" — they are hardware-class-aware (U≤72, H≤93, HX≤97, integrated GPU ≤58, panel/storage class). Never second-guess.
-- When Google Search grounding is available, use it to enrich with current prices, benchmarks, and reviews — but ALWAYS ground analysis in the provided specs first.
-- Reason from the ACTUAL component strengths (CPU class, dedicated-vs-integrated GPU tier, RAM capacity, panel type, storage speed) and explain WHY a rating is what it is — never quote scores without the hardware behind them.
-
-STYLE — natural, flexible, expert:
-- Answer the ACTUAL question directly — like a knowledgeable friend who knows both machines inside out.
-- Focused question → focused answer (don't dump everything).
-- Be conversational, warm, and concise. Vary phrasing — never repeat canned responses.
-- Cite specific numbers from the context when relevant.
-
-COMPARISON MODE (user asks which is better / overall):
-- Open with a bold verdict backed by 2-4 decisive numbers.
-- Then key differences; end with who should buy which. Never fence-sit.
-
-When the selected computers don't fit the need, suggest what hardware class to look for instead.`;
-
 const QUESTION_MAX_LENGTH = 2000;
 /** Only the newest 4 messages are sent to Gemini — faster + cheaper tokens. */
 const HISTORY_MAX_ITEMS = 4;
 const MAX_OUTPUT_TOKENS = 2048;
 const OVERALL_TIMEOUT_MS = 90_000;
-
-function ratingsLine(c: ComputerVariant): string {
-  const ratings = calculateRatings(c);
-  return RATING_DEFINITIONS
-    .filter((r) => ["gaming", "programming", "university", "performance", "value", "battery"].includes(r.id))
-    .map((r) => `${r.icon}${ratings[r.id].score}`)
-    .join(" · ");
-}
-
-function formatComputer(c: ComputerVariant): string {
-  const s = c.specs;
-  const bits: string[] = [];
-  bits.push(`CPU: ${s.cpu}${s.cpuCores ? ` (${s.cpuCores})` : ""}`);
-  bits.push(`GPU: ${s.gpu}`);
-  bits.push(`RAM: ${s.ram}GB${s.ramType ? ` ${s.ramType}` : ""}`);
-  bits.push(`Storage: ${s.storage}GB ${s.storageType}`);
-  if (s.displaySize) bits.push(`Display: ${s.displaySize}"${s.displayRefreshRate ? ` ${s.displayRefreshRate}Hz` : ""}`);
-  if (s.batteryLife) bits.push(`Battery: ${s.batteryLife}h`);
-  if (s.weight) bits.push(`${s.weight}kg`);
-  if (s.resolution) bits.push(`Resolution: ${s.resolution}`);
-  if (s.panelType) bits.push(`Panel: ${s.panelType}`);
-
-  return `${c.brand} ${c.name} — $${c.price} (${c.year})
-${describeHardware(c)}
-${bits.join(" | ")}
-Ratings: ${ratingsLine(c)}`;
-}
 
 interface HistoryItem { role: string; text: string; }
 
@@ -106,7 +56,7 @@ async function startGeminiStream(
   useGrounding: boolean,
 ): Promise<AsyncIterable<{ text?: string }>> {
   const config: Record<string, unknown> = {
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: CHAT_SYSTEM_PROMPT,
     temperature: 0.7,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
   };
@@ -139,25 +89,15 @@ export async function POST(request: NextRequest) {
     const computerIds = asStringArray(body.computerIds, "computerIds", { maxItems: 4, itemMaxLength: 200 });
     const history = parseHistory(body.history);
 
-    // Resolve all selected computers in parallel — one lightweight catalog
-    // pass (cached), fully independent from the Gemini call below.
-    const settled = await Promise.all(
-      computerIds.map(async (id) => {
-        const variant = await findVariantById(id);
-        if (variant) return { id, variants: [variant] };
-        const model = await getModelById(id);
-        if (model && model.variants.length > 0) return { id, variants: model.variants.slice(0, 4) };
-        return { id, variants: [] as ComputerVariant[] };
-      })
-    );
-    const resolved: ComputerVariant[] = [];
-    const invalidIds: string[] = [];
-    for (const s of settled) {
-      if (s.variants.length > 0) resolved.push(...s.variants);
-      else invalidIds.push(s.id);
-    }
+    // Resolve all selected computers through the catalog — one lightweight,
+    // cached database pass (Phase 3.2.6 grounding boundary). Only REAL
+    // catalog variants can reach the AI context; anything else is "not found".
+    const { resolved, missingIds } = await resolveChatComputers(computerIds, {
+      findVariantById,
+      getModelById,
+    });
 
-    if (invalidIds.length > 0) logError("POST /api/chat:unknown-computer-ids", null, { invalidIds });
+    if (missingIds.length > 0) logError("POST /api/chat:not-found-computer-ids", null, { missingIds });
 
     if (resolved.length === 0) {
       throw new ApiError("NO_COMPUTERS_SELECTED", "Select at least one computer to compare before asking the AI.", { status: 400 });
@@ -167,7 +107,11 @@ export async function POST(request: NextRequest) {
     if (!apiKey) throw new ApiError("NO_API_KEY", "Gemini AI is not configured yet. Add a Gemini API key to use this feature.");
 
     const computerContext = resolved.map(formatComputer).join("\n\n");
-    const userPrompt = `## Computers\n${computerContext}\n\n## Question\n${question}`;
+    const userPrompt = buildUserPrompt({
+      computers: computerContext,
+      question,
+      missingIds,
+    });
     const contents = buildContents(history, userPrompt);
     const ai = new GoogleGenAI({ apiKey });
 

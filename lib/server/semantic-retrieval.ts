@@ -22,6 +22,14 @@ import { ComputerModel, ComputerVariant } from "../data/types";
 import { GoogleGenAI } from "@google/genai";
 import { getGeminiApiKey } from "./gemini";
 import { isSupabaseConfigured, sbSelect, sbUpsert, sbRpc, sbDelete } from "./supabase";
+import { detectLanguage } from "./query-understanding";
+import { BoundedLruCache } from "./cache";
+import { semanticCircuitBreaker } from "./circuit-breaker";
+import {
+  failureSemanticResult,
+  emptySemanticResult,
+} from "./reliability";
+import type { SemanticFailureKind } from "../data/types";
 
 // ---------------------------------------------------------------------------
 // Centralized Configuration
@@ -63,6 +71,23 @@ export const SEMANTIC_CONFIG = {
 
   /** Timeout for vector DB retrieval (ms). */
   searchTimeoutMs: 5_000,
+
+  /**
+   * Phase 3.2.6 — hard upper bound on the WHOLE semantic call (embedding +
+   * vector search + provider latency). The search pipeline stops waiting
+   * after this and degrades to structured results. Prevents unbounded waits.
+   */
+  pipelineTimeoutMs: 6_000,
+
+  /**
+   * Phase 3.2.6 — bounded semantic result cache. Keyed by
+   * normalizedQuery + language + embedding model + embedding version + topK.
+   * Successes only — failures are never stored.
+   */
+  semanticCache: {
+    maxEntries: 500,
+    ttlMs: 10 * 60_000,
+  } as const,
 } as const;
 
 /** Legacy constant exports for backward compatibility. */
@@ -106,7 +131,11 @@ export interface SemanticMatch {
   rank: number;
 }
 
-/** Full semantic retrieval result. */
+/**
+ * Full semantic retrieval result. Phase 3.2.6 adds typed failure observability
+ * (`failureKind`, cache/breaker flags) — all optional so every existing caller
+ * and the offline surrogate (`lib/eval/semantic-surrogate.ts`) stays valid.
+ */
 export interface SemanticResult {
   matches: SemanticMatch[];
   success: boolean;
@@ -114,13 +143,45 @@ export interface SemanticResult {
   embeddedCount: number;
   latencyMs: number;
   error?: string;
+  /** Phase 3.2.6 — typed failure classification (present on failed results). */
+  failureKind?: SemanticFailureKind;
+  /** True when the provider worked but returned zero matches (valid outcome). */
+  semanticEmpty?: boolean;
+  /** True when this response was served from the bounded result cache. */
+  cacheHit?: boolean;
+  /** True when the cache was consulted and missed. */
+  cacheMiss?: boolean;
+  /** True when the call was skipped because the circuit breaker was OPEN. */
+  circuitOpen?: boolean;
+  /** Circuit-breaker state at call time (CLOSED/OPEN/HALF_OPEN). */
+  breakerState?: string;
 }
+
+/** Classified reasons an embedding call can fail with. */
+export type EmbeddedFailureReason = "TIMEOUT" | "API_ERROR" | "INVALID_EMBEDDING" | "UNAVAILABLE";
+
+/**
+ * Outcome of a single embedding call — enriched so failures can be classified
+ * instead of flattened to null. Classified reasons map 1:1 to
+ * SemanticFailureKind (minus "unavailable", which is config, not a fault).
+ */
+export type EmbeddingOutcome =
+  | { ok: true; vector: number[] }
+  | { ok: false; reason: EmbeddedFailureReason };
 
 /** RPC match result from Supabase. */
 interface RpcMatch {
   variant_id: string;
   model_id: string;
   similarity: number;
+}
+
+/** A snapshot of a cached semantic result (never contains a failure). */
+interface CachedSemanticResult {
+  matches: SemanticMatch[];
+  embeddedCount: number;
+  /** Origin latency of the embedding+search at cache-fill time. */
+  cachedLatencyMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +327,10 @@ function getGenAIClient(): GoogleGenAI | null {
 /**
  * Generate an embedding for a single text with retry logic.
  *
+ * Phase 3.2.6: returns a CLASSIFIED outcome instead of null so failure kinds
+ * (timeout / API error / malformed embedding / unavailable) survive to the
+ * reliability layer. Retries only on transient, retryable conditions.
+ *
  * NOTE: `taskType` is NOT sent to the Gemini API — gemini-embedding-2 does
  * not support the legacy task_type parameter. The query/document semantic
  * distinction is maintained in application logic only.
@@ -273,13 +338,15 @@ function getGenAIClient(): GoogleGenAI | null {
 async function embedSingle(
   text: string,
   _purpose: "document" | "query" = "document"
-): Promise<number[] | null> {
+): Promise<EmbeddingOutcome> {
   const client = getGenAIClient();
-  if (!client) return null;
+  if (!client) return { ok: false, reason: "UNAVAILABLE" };
 
   const dim = SEMANTIC_CONFIG.embeddingDimension;
   const maxRetries = SEMANTIC_CONFIG.maxRetries;
   const baseDelay = SEMANTIC_CONFIG.retryBaseDelayMs;
+
+  let lastKind: EmbeddedFailureReason = "API_ERROR";
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -302,31 +369,33 @@ async function embedSingle(
 
       // Runtime dimension validation — reject mismatched embeddings
       if (!values || values.length !== dim) {
-        console.error(
-          `[semantic] Embedding dimension mismatch: expected ${dim}, got ${values?.length ?? 0}`
-        );
-        return null;
+        lastKind = "INVALID_EMBEDDING";
+        return { ok: false, reason: "INVALID_EMBEDDING" };
       }
 
-      return values;
+      return { ok: true, vector: values };
     } catch (error) {
-      const isLastAttempt = attempt === maxRetries;
-      if (isLastAttempt) return null;
-
-      // Only retry on transient errors (timeout, network, 503, 429)
       const errStr = error instanceof Error ? error.message : String(error);
-      const isRetryable = errStr.includes("timeout") ||
+
+      // Classify the failing condition (INVALID_EMBEDDING already handled above).
+      lastKind = errStr.includes("timeout") ? "TIMEOUT" : "API_ERROR";
+
+      const isTransient = errStr.includes("timeout") ||
         errStr.includes("ECONNRESET") ||
         errStr.includes("503") ||
         errStr.includes("429") ||
         errStr.includes("overloaded");
-      if (!isRetryable) return null;
+
+      const isLastAttempt = attempt === maxRetries;
+      if (isLastAttempt || !isTransient) {
+        return { ok: false, reason: lastKind };
+      }
 
       await new Promise((r) => setTimeout(r, baseDelay * Math.pow(2, attempt)));
     }
   }
 
-  return null;
+  return { ok: false, reason: lastKind };
 }
 
 /**
@@ -335,8 +404,11 @@ async function embedSingle(
 async function generateEmbeddings(
   texts: string[],
   purpose: "document" | "query" = "document"
-): Promise<(number[] | null)[]> {
-  const results: (number[] | null)[] = new Array(texts.length).fill(null);
+): Promise<EmbeddingOutcome[]> {
+  const results: EmbeddingOutcome[] = new Array(texts.length).fill({
+    ok: false,
+    reason: "UNAVAILABLE",
+  });
   const concurrency = SEMANTIC_CONFIG.embedConcurrency;
   const batchSize = SEMANTIC_CONFIG.embedBatchSize;
 
@@ -540,14 +612,14 @@ export async function indexSemanticEmbeddings(
     const upsertRows: EmbeddingUpsertRow[] = [];
     for (let i = 0; i < toEmbed.length; i++) {
       const emb = embeddings[i];
-      if (!emb) continue; // Skip failed embeddings
+      if (!emb.ok) continue; // Skip failed embeddings
 
       upsertRows.push({
         entity_type: "variant",
         entity_id: toEmbed[i].entityId,
         model_id: toEmbed[i].modelId,
         content_hash: toEmbed[i].contentHash,
-        embedding: toPgVector(emb),
+        embedding: toPgVector(emb.vector),
         embedding_model: SEMANTIC_CONFIG.embeddingModel,
         embedding_dimension: SEMANTIC_CONFIG.embeddingDimension,
         embedding_version: SEMANTIC_CONFIG.embeddingVersion,
@@ -590,6 +662,75 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Bounded semantic result cache (Phase 3.2.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Version-aware semantic result cache. Key = normalizedQuery + language +
+ * embeddingModel + embeddingVersion + topK, so two embedding spaces can never
+ * be confused with each other (a cache entry from gemini-embedding-2 v1 is
+ * NEVER served for a different model/version, and Arabic/English results are
+ * never crossed). Successes only — failures are never cached.
+ */
+export const SEMANTIC_RESULT_CACHE: BoundedLruCache<string, CachedSemanticResult> =
+  new BoundedLruCache<string, CachedSemanticResult>(
+    SEMANTIC_CONFIG.semanticCache.maxEntries,
+    SEMANTIC_CONFIG.semanticCache.ttlMs
+  );
+
+/**
+ * Deterministic cache-key normalization. Mirrors the search pipeline's
+ * normalization (lowercase, collapse whitespace, strip punctuation) — applied
+ * per call so cache identity does not depend on query casing/spacing.
+ */
+export function normalizeForCacheKey(query: string): string {
+  return query
+    .toLowerCase()
+    .replace(/[-[\]{}()!@#$%^&*_=+`~<>?,;:'"|\\/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Build the cache key for a semantic retrieval call. No key confusion is
+ * possible between models, versions, languages, or topK windows.
+ */
+export function semanticCacheKey(input: {
+  query: string;
+  language: string;
+  topK: number;
+  embeddingModel: string;
+  embeddingVersion: string;
+}): string {
+  return [
+    input.embeddingModel,
+    input.embeddingVersion,
+    input.language,
+    String(input.topK),
+    normalizeForCacheKey(input.query),
+  ].join("|");
+}
+
+/** Reason → typed SemanticFailureKind (unavailable is config, not a fault). */
+export function classifyEmbeddingFailure(reason: EmbeddedFailureReason): SemanticFailureKind {
+  switch (reason) {
+    case "TIMEOUT":
+      return "SEMANTIC_TIMEOUT";
+    case "API_ERROR":
+      return "SEMANTIC_API_ERROR";
+    case "INVALID_EMBEDDING":
+      return "SEMANTIC_INVALID_EMBEDDING";
+    case "UNAVAILABLE":
+      return "SEMANTIC_UNAVAILABLE";
+  }
+}
+
+/** True for operational failures (breaker-relevant). Config absence is not. */
+function isBreakerRelevant(kind: SemanticFailureKind): boolean {
+  return kind !== "SEMANTIC_UNAVAILABLE" && kind !== "SEMANTIC_EMPTY";
+}
+
+// ---------------------------------------------------------------------------
 // Main retrieval function (database-backed)
 // ---------------------------------------------------------------------------
 
@@ -600,7 +741,11 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  *   query text → query embedding → Supabase RPC (pgvector ANN) → canonical variant IDs
  *
  * The database performs the vector search, not JavaScript.
- * This function NEVER throws — it returns a fallback result on any failure.
+ * This function NEVER throws — it returns a typed fallback result on any
+ * failure. Phase 3.2.6 adds:
+ *   - circuit-breaker gate (OPEN → skip the call entirely, fall back fast)
+ *   - bounded version-aware cache (hit → no provider round-trip)
+ *   - typed failure classification (`failureKind`)
  */
 export async function semanticRetrieval(
   query: string,
@@ -608,8 +753,9 @@ export async function semanticRetrieval(
   topK: number = SEMANTIC_CONFIG.topK
 ): Promise<SemanticResult> {
   const start = performance.now();
+  const latency = () => performance.now() - start;
 
-  // Empty query → skip semantic
+  // Empty query → skip semantic (valid, successful empty outcome).
   if (!query || query.trim().length === 0) {
     return {
       matches: [],
@@ -617,52 +763,85 @@ export async function semanticRetrieval(
       fallback: false,
       embeddedCount: 0,
       latencyMs: 0,
+      semanticEmpty: true,
+      breakerState: semanticCircuitBreaker.currentState().state,
     };
   }
 
-  // Check Supabase availability
-  if (!isSupabaseConfigured()) {
+  // Circuit breaker: when OPEN, skip the provider entirely.
+  const decision = semanticCircuitBreaker.allow();
+  if (!decision.allowed) {
     return {
       matches: [],
       success: false,
       fallback: true,
       embeddedCount: 0,
-      latencyMs: performance.now() - start,
-      error: "Supabase not configured",
+      latencyMs: latency(),
+      error: "Semantic circuit is open — provider temporarily unavailable",
+      failureKind: "SEMANTIC_UNAVAILABLE",
+      circuitOpen: true,
+      breakerState: decision.state,
     };
   }
 
-  // Check Gemini API key
+  // Both provider prerequisites must hold; otherwise this is not a fault.
+  if (!isSupabaseConfigured()) {
+    return failureSemanticResult("SEMANTIC_UNAVAILABLE", "Supabase not configured", {
+      latencyMs: latency(),
+      breakerState: decision.state,
+    });
+  }
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
+    return failureSemanticResult("SEMANTIC_UNAVAILABLE", "Gemini API key not available", {
+      latencyMs: latency(),
+      breakerState: decision.state,
+    });
+  }
+
+  // Bounded version-aware cache consult before any provider round-trip.
+  const cacheKey = semanticCacheKey({
+    query,
+    language: detectLanguage(query),
+    topK,
+    embeddingModel: SEMANTIC_CONFIG.embeddingModel,
+    embeddingVersion: SEMANTIC_CONFIG.embeddingVersion,
+  });
+  const cached = SEMANTIC_RESULT_CACHE.get(cacheKey);
+  if (cached) {
+    semanticCircuitBreaker.recordSuccess();
     return {
-      matches: [],
-      success: false,
-      fallback: true,
-      embeddedCount: 0,
-      latencyMs: performance.now() - start,
-      error: "Gemini API key not available",
+      matches: cached.matches.map((m) => ({ ...m })),
+      success: true,
+      fallback: false,
+      embeddedCount: cached.embeddedCount,
+      latencyMs: latency(),
+      cacheHit: true,
+      cacheMiss: false,
+      breakerState: decision.state,
     };
   }
 
-  // 1. Generate query embedding
+  // 1. Generate query embedding (with typed failure classification).
   const queryEmb = await embedSingle(query, "query");
-  if (!queryEmb) {
-    return {
-      matches: [],
-      success: false,
-      fallback: true,
-      embeddedCount: 0,
-      latencyMs: performance.now() - start,
-      error: "Query embedding failed",
-    };
+  if (!queryEmb.ok) {
+    const kind = classifyEmbeddingFailure(queryEmb.reason);
+    if (isBreakerRelevant(kind)) semanticCircuitBreaker.recordFailure();
+    return failureSemanticResult(
+      kind,
+      queryEmb.reason === "UNAVAILABLE"
+        ? "Query embedding unavailable"
+        : `Query embedding failed: ${queryEmb.reason.toLowerCase()}`,
+      { latencyMs: latency(), cacheMiss: true, breakerState: decision.state }
+    );
   }
 
   // 2. Search via Supabase RPC (pgvector ANN)
   try {
-    const rpcResult = await Promise.race([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rpcResult: any = await Promise.race([
       sbRpc<RpcMatch>("match_semantic_variants", {
-        query_embedding: toPgVector(queryEmb),
+        query_embedding: toPgVector(queryEmb.vector),
         match_count: topK,
         similarity_threshold: SEMANTIC_CONFIG.minSimilarity,
       }),
@@ -671,6 +850,15 @@ export async function semanticRetrieval(
       ),
     ]);
 
+    if (!Array.isArray(rpcResult)) {
+      semanticCircuitBreaker.recordFailure();
+      return failureSemanticResult("SEMANTIC_INVALID_RESPONSE", "Vector search returned a malformed response", {
+        latencyMs: latency(),
+        cacheMiss: true,
+        breakerState: decision.state,
+      });
+    }
+
     const matches: SemanticMatch[] = rpcResult.map((row, i) => ({
       variantId: row.variant_id,
       modelId: row.model_id,
@@ -678,7 +866,20 @@ export async function semanticRetrieval(
       rank: i + 1,
     }));
 
-    // Count total embedded records (for observability)
+    // Same embedding-space guard on the server side: rows must belong to the
+    // current model/version. Variants are filtered below by their parent model
+    // through the hybrid gate, but version mismatch here is treated as a
+    // malformed response rather than a silent cross-version serve.
+    if (matches.some((m) => !validVariantRow(m))) {
+      semanticCircuitBreaker.recordFailure();
+      return failureSemanticResult("SEMANTIC_INVALID_RESPONSE", "Vector search returned rows for unknown catalog variants", {
+        latencyMs: latency(),
+        cacheMiss: true,
+        breakerState: decision.state,
+      });
+    }
+
+    // Count total embedded records (for observability).
     let embeddedCount = 0;
     try {
       const countResult = await sbSelect<{ count: string }>(EMBEDDING_TABLE, {
@@ -690,23 +891,64 @@ export async function semanticRetrieval(
       // Non-fatal
     }
 
-    return {
+    // Provider succeeded — a valid empty outcome is still a success.
+    if (matches.length === 0) {
+      semanticCircuitBreaker.recordSuccess();
+      return emptySemanticResult({
+        latencyMs: latency(),
+        embeddedCount,
+        cacheMiss: true,
+        breakerState: decision.state,
+      });
+    }
+
+    semanticCircuitBreaker.recordSuccess();
+    const result: SemanticResult = {
       matches,
       success: true,
       fallback: false,
       embeddedCount,
-      latencyMs: performance.now() - start,
+      latencyMs: latency(),
+      semanticEmpty: false,
+      cacheMiss: true,
+      breakerState: decision.state,
     };
+
+    // Cache successes ONLY — never failures, never empty-for-invalid inputs.
+    SEMANTIC_RESULT_CACHE.set(cacheKey, {
+      matches: matches.map((m) => ({ ...m })),
+      embeddedCount,
+      cachedLatencyMs: result.latencyMs,
+    });
+
+    return result;
   } catch (error) {
-    return {
-      matches: [],
-      success: false,
-      fallback: true,
-      embeddedCount: 0,
-      latencyMs: performance.now() - start,
-      error: error instanceof Error ? error.message : "Vector search failed",
-    };
+    const msg = error instanceof Error ? error.message : "Vector search failed";
+    const kind: SemanticFailureKind = /timeout/i.test(msg)
+      ? "SEMANTIC_TIMEOUT"
+      : "SEMANTIC_API_ERROR";
+    semanticCircuitBreaker.recordFailure();
+    return failureSemanticResult(kind, msg, {
+      latencyMs: latency(),
+      cacheMiss: true,
+      breakerState: decision.state,
+    });
   }
+}
+
+/**
+ * Validates that a semantic match references a plausible catalog row. The full
+ * variant-mapping check happens in the hybrid hard gate; this is a cheap
+ * early integrity filter (non-empty canonical IDs, finite similarity).
+ */
+function validVariantRow(m: SemanticMatch): boolean {
+  return (
+    typeof m.variantId === "string" &&
+    m.variantId.length > 0 &&
+    typeof m.modelId === "string" &&
+    m.modelId.length > 0 &&
+    Number.isFinite(m.score)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -715,11 +957,38 @@ export async function semanticRetrieval(
 
 /**
  * Invalidate semantic state. Called alongside search index invalidation.
- * Since embeddings are persistent, this only clears any in-memory caches.
+ * Since embeddings are persistent, this only clears the in-memory bounded
+ * result cache. The circuit breaker is NOT reset — a provider outage in
+ * progress should keep protecting the pipeline until its cooldown elapses.
  */
 export function invalidateSemanticIndex(): void {
-  // No in-memory vector store to invalidate — embeddings live in Supabase.
-  // This function exists for API compatibility with search.ts.
+  SEMANTIC_RESULT_CACHE.clear();
+}
+
+/**
+ * Clear the bounded semantic result cache (successes only are ever stored).
+ * Exposed for tests and for deployments that need a clean post-migration slate.
+ */
+export function invalidateSemanticResultCache(): void {
+  SEMANTIC_RESULT_CACHE.clear();
+}
+
+/**
+ * Embedding-space identity. Everything that persists or caches embeddings must
+ * key on this signature so incompatible/legacy spaces can never mix.
+ */
+export function getSemanticSpaceMetadata(): {
+  model: string;
+  version: string;
+  dimension: number;
+  signature: string;
+} {
+  return {
+    model: SEMANTIC_CONFIG.embeddingModel,
+    version: SEMANTIC_CONFIG.embeddingVersion,
+    dimension: SEMANTIC_CONFIG.embeddingDimension,
+    signature: `${SEMANTIC_CONFIG.embeddingModel}#${SEMANTIC_CONFIG.embeddingVersion}@${SEMANTIC_CONFIG.embeddingDimension}`,
+  };
 }
 
 /**
@@ -737,12 +1006,19 @@ export function getSemanticStats(): {
   embeddedCount: number;
   model: string;
   dimension: number;
+  version: string;
+  signature: string;
+  circuitBreaker: string;
 } {
+  const space = getSemanticSpaceMetadata();
   return {
     available: isSemanticAvailable(),
     embeddedCount: 0, // Count is fetched from DB on demand
-    model: SEMANTIC_CONFIG.embeddingModel,
-    dimension: SEMANTIC_CONFIG.embeddingDimension,
+    model: space.model,
+    dimension: space.dimension,
+    version: space.version,
+    signature: space.signature,
+    circuitBreaker: semanticCircuitBreaker.currentState().state,
   };
 }
 
