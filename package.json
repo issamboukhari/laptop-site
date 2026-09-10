@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "vitest run tests/benchmark",
-    "calibrate": "vitest run tests/eval"
+    "calibrate": "vitest run tests/eval",
+    "test-search-quality": "vitest run tests/eval/search-quality.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
