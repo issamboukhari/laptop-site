@@ -13,15 +13,23 @@ import {
   runQualityEvaluation,
   formatQualityReport,
   writeQualityReport,
-  loadBaseline,
+  loadHistoricalBaseline,
+  loadV2Baseline,
+  writeV2Baseline,
+  computeDatasetFingerprint,
+  computeCatalogFingerprint,
+  computeConfigFingerprint,
   type QualityReport,
+  type V2BaselineArtifact,
 } from "@/lib/eval/quality";
 
 /**
  * Phase 3.2.7 — Search Quality Suite v2 (Regression Benchmark).
  *
- * Measures whether search quality regresses from baseline, not absolute quality.
- * 45 queries across 9 groups. Hard constraint violations are non-negotiable.
+ * Mandatory gates:
+ *   1. HardConstraintViolationRate === 0
+ *   2. NoResultAccuracy === 1
+ *   3. Core retention does not regress beyond -0.05
  *
  * Run explicitly with:  npm run test-search-quality
  */
@@ -33,12 +41,38 @@ const REPORT_PATH = path.join(
   "search-quality-report.json"
 );
 
+const V2_BASELINE_PATH = path.join(
+  process.cwd(),
+  "tests",
+  "eval",
+  "search-quality-baseline-v2.json"
+);
+
 describe("Search Quality Suite v2 — Regression Benchmark", () => {
   let report: QualityReport;
   let allModels: Awaited<ReturnType<typeof getAllModels>>;
 
   beforeAll(async () => {
     allModels = await getAllModels();
+
+    // Generate v2 baseline artifact if it doesn't exist
+    let v2BaselineExists = false;
+    try {
+      await fs.access(V2_BASELINE_PATH);
+      v2BaselineExists = true;
+    } catch {
+      // not found
+    }
+
+    if (!v2BaselineExists) {
+      await runQualityEvaluation({
+        queries: QUALITY_QUERIES,
+        allModels,
+        semanticSource: SURROGATE_SEMANTIC_SOURCE,
+        generateBaseline: true,
+      });
+    }
+
     report = await runQualityEvaluation({
       queries: QUALITY_QUERIES,
       allModels,
@@ -150,6 +184,61 @@ describe("Search Quality Suite v2 — Regression Benchmark", () => {
   });
 
   // =========================================================================
+  // Baseline compatibility
+  // =========================================================================
+
+  describe("Baseline compatibility", () => {
+    it("historical calibration report loads successfully", async () => {
+      const historical = await loadHistoricalBaseline();
+      expect(historical.datasetVersion).toBeDefined();
+      expect(historical.coreRetrieval).toBeGreaterThanOrEqual(0);
+      expect(historical.tradeoffScore).toBeGreaterThanOrEqual(0);
+    });
+
+    it("incompatible historical baseline is marked historical-reference-only", () => {
+      // v1 historical baseline has 21 queries, v2 has 45 — incompatible
+      expect(report.historicalBaseline.compatibility).toBe("historical-reference-only");
+      expect(report.historicalBaseline.incompatibilityReason).toBeDefined();
+      expect(report.historicalBaseline.incompatibilityReason).toContain("v1");
+      expect(report.historicalBaseline.incompatibilityReason).toContain("v2");
+    });
+
+    it("v2 baseline artifact exists and matches Dataset v2", async () => {
+      const v2 = await loadV2Baseline();
+      expect(v2.datasetVersion).toBe("v2");
+      expect(v2.queryCount).toBe(45);
+      expect(v2.queryIds.length).toBe(45);
+      expect(v2.semanticSource).toBe("deterministic-surrogate");
+    });
+
+    it("v2 baseline fingerprints match current dataset", async () => {
+      const v2 = await loadV2Baseline();
+      expect(v2.fingerprints.dataset).toBe(report.dataset.fingerprints.dataset);
+      expect(v2.fingerprints.catalog).toBe(report.dataset.fingerprints.catalog);
+      expect(v2.fingerprints.config).toBe(report.dataset.fingerprints.config);
+    });
+
+    it("no hidden hardcoded fallback exists", () => {
+      // The report explicitly distinguishes historical vs current baseline
+      expect(report.historicalBaseline.source).toBe("calibration-report.json");
+      expect(report.currentDatasetBaseline.source).toContain("v2-evaluation");
+    });
+
+    it("fingerprints are computed deterministically", () => {
+      const queryIds = QUALITY_QUERIES.map((q) => q.id).sort();
+      const ds = computeDatasetFingerprint(queryIds);
+      const cat = computeCatalogFingerprint(
+        report.dataset.catalogModelCount,
+        report.dataset.catalogVariantCount
+      );
+      const cfg = computeConfigFingerprint(report.currentDatasetBaseline.config);
+      expect(ds).toBe(report.dataset.fingerprints.dataset);
+      expect(cat).toBe(report.dataset.fingerprints.catalog);
+      expect(cfg).toBe(report.dataset.fingerprints.config);
+    });
+  });
+
+  // =========================================================================
   // Quality gates (mandatory)
   // =========================================================================
 
@@ -158,13 +247,16 @@ describe("Search Quality Suite v2 — Regression Benchmark", () => {
       expect(report.gates.hardConstraintViolationRate).toBe(0);
     });
 
-    it("no-result accuracy is recorded (informational, not gated)", () => {
-      // Known limitation: token-overlap surrogate cannot detect semantic impossibility
-      // (e.g. "iPhone laptop", "MacBook with RTX 4060"). This metric reflects
-      // surrogate limitations, not production behavior. Documented for regression
-      // tracking. The ONLY non-negotiable gate is hardConstraintViolationRate = 0.
-      expect(report.gates.noResultAccuracy).toBeGreaterThanOrEqual(0);
-      expect(report.gates.noResultAccuracy).toBeLessThanOrEqual(1);
+    it("no-result accuracy is 100%", () => {
+      expect(report.gates.noResultAccuracy).toBe(1.0);
+    });
+
+    it("no-result counts are correct", () => {
+      const negativeCount = QUALITY_QUERIES.filter(
+        (q) => q.expectedResult === "empty"
+      ).length;
+      expect(report.gates.noResultTotal).toBe(negativeCount);
+      expect(report.gates.noResultCorrect).toBe(negativeCount);
     });
 
     it("core retrieval does not regress beyond -0.05 from baseline", () => {
@@ -242,6 +334,33 @@ describe("Search Quality Suite v2 — Regression Benchmark", () => {
         }
       }
     });
+
+    it("hard-gate failures cite violation count", () => {
+      for (const q of report.perQuery) {
+        if (q.primaryFailureStage === "hard-gate") {
+          expect(q.failureReason).toContain("violated");
+          expect(q.violations).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it("structured-retrieval failures cite zero candidates", () => {
+      for (const q of report.perQuery) {
+        if (q.primaryFailureStage === "structured-retrieval") {
+          expect(q.stages.structuredRetrieval.candidateCount).toBe(0);
+          expect(q.failureReason).toContain("0 candidates");
+        }
+      }
+    });
+
+    it("hybrid-fusion failures cite upstream vs fusion count", () => {
+      for (const q of report.perQuery) {
+        if (q.primaryFailureStage === "hybrid-fusion") {
+          expect(q.stages.hybridFusion.fusedCount).toBe(0);
+          expect(q.failureReason).toContain("fusion");
+        }
+      }
+    });
   });
 
   // =========================================================================
@@ -285,14 +404,17 @@ describe("Search Quality Suite v2 — Regression Benchmark", () => {
         r2.gates.hardConstraintViolationRate
       );
       expect(r1.gates.noResultAccuracy).toBe(r2.gates.noResultAccuracy);
+      expect(r1.dataset.fingerprints.dataset).toBe(r2.dataset.fingerprints.dataset);
+      expect(r1.dataset.fingerprints.catalog).toBe(r2.dataset.fingerprints.catalog);
+      expect(r1.dataset.fingerprints.config).toBe(r2.dataset.fingerprints.config);
     });
   });
 
   // =========================================================================
-  // Report
+  // Reporting
   // =========================================================================
 
-  describe("Report", () => {
+  describe("Reporting", () => {
     it("writes search-quality-report.json", async () => {
       const filePath = await writeQualityReport(report);
       const stat = await fs.stat(filePath);
@@ -304,7 +426,21 @@ describe("Search Quality Suite v2 — Regression Benchmark", () => {
       expect(parsed.dataset.queryCount).toBe(45);
     });
 
-    it("prints human-readable summary", () => {
+    it("human-readable output contains correct no-result accuracy", () => {
+      const summary = formatQualityReport(report);
+      expect(summary).toContain("No-result accuracy:");
+      // Must contain explicit X/Y format, not derived from passed/failed
+      expect(summary).toMatch(/No-result accuracy: \d+\/\d+ \(\d+\.?\d*%\)/);
+    });
+
+    it("human-readable output contains baseline distinction", () => {
+      const summary = formatQualityReport(report);
+      expect(summary).toContain("Historical baseline:");
+      expect(summary).toContain("Current baseline:");
+      expect(summary).toContain("historical-reference-only");
+    });
+
+    it("prints human-readable summary with all gates", () => {
       const summary = formatQualityReport(report);
       expect(summary).toContain("Search Quality Report v2");
       expect(summary).toContain("45 queries");

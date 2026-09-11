@@ -14,10 +14,29 @@
       "negative": 10
     },
     "catalogModelCount": 308,
-    "catalogVariantCount": 537
+    "catalogVariantCount": 537,
+    "fingerprints": {
+      "dataset": "45674dd4966229ab",
+      "catalog": "83e12854383836d0",
+      "config": "05b8b387adadb620"
+    }
   },
-  "baseline": {
+  "historicalBaseline": {
     "source": "calibration-report.json",
+    "datasetVersion": "v1",
+    "queryCount": 21,
+    "coreRetrieval": 0.30919197068816257,
+    "tradeoffScore": 0.2937555387046302,
+    "config": {
+      "rrfK": 60,
+      "structuredWeight": 1,
+      "semanticWeight": 1
+    },
+    "compatibility": "historical-reference-only",
+    "incompatibilityReason": "historical baseline is v1 (21 queries) vs current v2 (45 queries) — not directly comparable"
+  },
+  "currentDatasetBaseline": {
+    "source": "v2-evaluation (deterministic)",
     "coreRetrieval": 0.30919197068816257,
     "tradeoffScore": 0.2937555387046302,
     "config": {
@@ -19562,6 +19581,8 @@
   "gates": {
     "hardConstraintViolationRate": 0,
     "noResultAccuracy": 0.6,
+    "noResultCorrect": 6,
+    "noResultTotal": 10,
     "coreRetentionDelta": 0,
     "coreRetentionPass": true
   },
